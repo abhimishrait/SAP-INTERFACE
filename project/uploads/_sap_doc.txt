@@ -1,0 +1,1142 @@
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+SalesPort – SAP B1
+Integration API Documentation
+Version 1.2
+February 2026
+Prepared by
+Sort String Solutions LLP
+CONFIDENTIAL
+© 2026 Sort String Solutions LLP | Confidential | Page 1
+
+-- 1 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Document Information
+Document Title SalesPort – SAP B1 Integration API Documentation
+Version 1.2
+Status Final
+Last Updated February 21, 2026
+Revision History
+Version Date Author Description
+1.0 Feb 15, 2026 Sort String Solutions LLP Initial Draft — 13 modules
+1.1 Feb 21, 2026 Sort String Solutions LLP Added Products (Variants)
+and Delivery Order
+1.2 Feb 21, 2026 Sort String Solutions LLP Balance Status Update &
+Order Status Sync changed
+to PUT only; status string
+mapping added
+© 2026 Sort String Solutions LLP | Confidential | Page 2
+
+-- 2 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Table of Contents
+Document Information....................................................................................................................................................2
+Revision History........................................................................................................................................................... 2
+Table of Contents............................................................................................................................................................. 3
+1. Introduction.................................................................................................................................................................. 8
+1.1 Purpose.................................................................................................................................................................. 8
+1.2 Scope...................................................................................................................................................................... 8
+1.3 Integration Architecture...................................................................................................................................... 8
+1.4 Base URL................................................................................................................................................................ 8
+2. Authentication & Security.......................................................................................................................................... 10
+2.1 Authentication Method...................................................................................................................................... 10
+2.2 API Credentials....................................................................................................................................................10
+2.3 Request Header Format..................................................................................................................................... 10
+2.4 Sample cURL Request......................................................................................................................................... 10
+2.5 Security Guidelines............................................................................................................................................. 10
+2.6 HTTP Response Codes........................................................................................................................................10
+3. API Endpoints Reference........................................................................................................................................... 12
+3.0 API Endpoints Summary.................................................................................................................................... 12
+3.1 Business Partner (BP) Master............................................................................................................................ 13
+Endpoints..............................................................................................................................................................13
+Business Rules & Validation................................................................................................................................ 13
+Request Schema.................................................................................................................................................. 13
+Sample Request Payload (POST)........................................................................................................................ 14
+Responses............................................................................................................................................................. 15
+3.2 Blanket Agreement............................................................................................................................................. 16
+Endpoints..............................................................................................................................................................16
+Business Rules & Validation................................................................................................................................ 16
+© 2026 Sort String Solutions LLP | Confidential | Page 3
+
+-- 3 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Request Schema.................................................................................................................................................. 16
+Sample Request Payload (POST)........................................................................................................................ 16
+Responses............................................................................................................................................................. 17
+3.3 Greater Circles..................................................................................................................................................... 18
+Endpoints..............................................................................................................................................................18
+Business Rules & Validation................................................................................................................................ 18
+Request Schema.................................................................................................................................................. 18
+Sample Request Payload (POST)........................................................................................................................ 18
+Responses............................................................................................................................................................. 18
+3.4 Circles................................................................................................................................................................... 19
+Endpoints..............................................................................................................................................................19
+Business Rules & Validation................................................................................................................................ 19
+Request Schema.................................................................................................................................................. 19
+Sample Request Payload (POST)........................................................................................................................ 19
+Responses............................................................................................................................................................. 19
+3.5 Container............................................................................................................................................................. 20
+Endpoints..............................................................................................................................................................20
+Business Rules & Validation................................................................................................................................ 20
+Request Schema.................................................................................................................................................. 20
+Sample Request Payload (POST)........................................................................................................................ 20
+Responses............................................................................................................................................................. 20
+3.6 Matrix................................................................................................................................................................... 21
+Endpoints..............................................................................................................................................................21
+Business Rules & Validation................................................................................................................................ 21
+Request Schema.................................................................................................................................................. 21
+Sample Request Payload (POST)........................................................................................................................ 21
+Responses............................................................................................................................................................. 21
+© 2026 Sort String Solutions LLP | Confidential | Page 4
+
+-- 4 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.7 Product Class.......................................................................................................................................................22
+Endpoints..............................................................................................................................................................22
+Business Rules & Validation................................................................................................................................ 22
+Request Schema.................................................................................................................................................. 22
+Sample Request Payload (POST)........................................................................................................................ 22
+Responses............................................................................................................................................................. 22
+3.8 Product Name..................................................................................................................................................... 23
+Endpoints..............................................................................................................................................................23
+Business Rules & Validation................................................................................................................................ 23
+Request Schema.................................................................................................................................................. 23
+Sample Request Payload (POST)........................................................................................................................ 23
+Responses............................................................................................................................................................. 23
+3.9 Payment Terms................................................................................................................................................... 24
+Endpoints..............................................................................................................................................................24
+Business Rules & Validation................................................................................................................................ 24
+Request Schema.................................................................................................................................................. 24
+Sample Request Payload (POST)........................................................................................................................ 24
+Responses............................................................................................................................................................. 24
+3.10 Price List Group................................................................................................................................................. 25
+Endpoints..............................................................................................................................................................25
+Business Rules & Validation................................................................................................................................ 25
+Request Schema.................................................................................................................................................. 25
+Sample Request Payload (POST)........................................................................................................................ 25
+Responses............................................................................................................................................................. 25
+3.11 Price List............................................................................................................................................................. 26
+Endpoints..............................................................................................................................................................26
+Business Rules & Validation................................................................................................................................ 26
+© 2026 Sort String Solutions LLP | Confidential | Page 5
+
+-- 5 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Request Schema.................................................................................................................................................. 26
+Sample Request Payload (POST)........................................................................................................................ 26
+Responses............................................................................................................................................................. 26
+3.12 Special Price List................................................................................................................................................ 27
+Endpoints..............................................................................................................................................................27
+Business Rules & Validation................................................................................................................................ 27
+Request Schema.................................................................................................................................................. 27
+Sample Request Payload (POST)........................................................................................................................ 27
+Responses............................................................................................................................................................. 28
+3.13 Products (Variants)...........................................................................................................................................29
+Endpoints..............................................................................................................................................................29
+Business Rules & Validation................................................................................................................................ 29
+Request Schema.................................................................................................................................................. 29
+Sample Request Payload (POST)........................................................................................................................ 30
+Responses............................................................................................................................................................. 30
+3.14 Delivery Order................................................................................................................................................... 31
+Endpoints..............................................................................................................................................................31
+Business Rules & Validation................................................................................................................................ 31
+Request Schema.................................................................................................................................................. 31
+Delivery Order Details (Nested Object).............................................................................................................31
+Sample Request Payload (POST)........................................................................................................................ 32
+Responses............................................................................................................................................................. 32
+3.15 Balance Status Update..................................................................................................................................... 33
+Endpoints..............................................................................................................................................................33
+Business Rules & Validation................................................................................................................................ 33
+Request Schema.................................................................................................................................................. 33
+Sample Request Payload (PUT).......................................................................................................................... 33
+© 2026 Sort String Solutions LLP | Confidential | Page 6
+
+-- 6 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Responses............................................................................................................................................................. 33
+3.16 Order Status Sync............................................................................................................................................. 34
+Endpoints..............................................................................................................................................................34
+Business Rules & Validation................................................................................................................................ 34
+Request Schema.................................................................................................................................................. 34
+Sample Request Payload (PUT).......................................................................................................................... 34
+Responses............................................................................................................................................................. 34
+4. Data Conventions & Status Mapping....................................................................................................................... 35
+4.1 Status Field Mapping.......................................................................................................................................... 35
+4.2 Date Format......................................................................................................................................................... 35
+4.3 Decimal Fields..................................................................................................................................................... 35
+4.4 Naming Conventions..........................................................................................................................................35
+5. Error Handling............................................................................................................................................................ 36
+5.1 Error Response Format...................................................................................................................................... 36
+5.2 Common Error Scenarios...................................................................................................................................36
+5.3 Retry Strategy...................................................................................................................................................... 36
+6. Appendix..................................................................................................................................................................... 37
+6.1 Glossary............................................................................................................................................................... 37
+6.2 Contact Information........................................................................................................................................... 37
+© 2026 Sort String Solutions LLP | Confidential | Page 7
+
+-- 7 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+1. Introduction
+1.1 Purpose
+This document provides a comprehensive technical reference for the RESTful API integration between SAP
+Business One (SAP B1) and SalesPort DMS. It details every endpoint, request schema, validation rule,
+sample payload, and expected response to enable the integration team to implement the data push with
+confidence.
+1.2 Scope
+The integration covers the synchronization of master data and transactional data from SAP B1 into
+SalesPort, including:
+ Business Partner (BP) Master
+ Blanket Agreements
+ Greater Circles
+ Circles
+ Containers
+ Matrix
+ Product Class
+ Product Name
+ Payment Terms
+ Price List Group
+ Price List
+ Special Price List
+ Products (Variants)
+ Delivery Order
+ Balance Status Update
+ Order Status Sync
+1.3 Integration Architecture
+The integration follows a push-based architecture where SAP B1 initiates HTTP requests to SalesPort's
+REST API endpoints. For creating new records, SAP sends POST requests; for updating existing records,
+SAP sends PUT requests with the record ID in the URL path.
+Source System SAP Business One (SAP B1)
+Target System SalesPort DMS
+Direction SAP SalesPort (push-based)	→
+Protocol HTTPS (TLS 1.2+)
+1.4 Base URL
+All API endpoints are relative to the following base URL:
+© 2026 Sort String Solutions LLP | Confidential | Page 8
+
+-- 8 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+http://dms.salesport.in/
+For example, to create a Business Partner, the full endpoint URL would be:
+POST http://dms.salesport.in/sap/bp-master/
+© 2026 Sort String Solutions LLP | Confidential | Page 9
+
+-- 9 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+2. Authentication & Security
+2.1 Authentication Method
+All API endpoints are secured using HTTP Basic Authentication. Every request must include an
+Authorization header with Base64-encoded credentials.
+2.2 API Credentials
+The following credentials must be used for all POST and PUT requests to the SalesPort API:
+Username SujalFoods
+Password SujalFoods@123
+2.3 Request Header Format
+Every API request must include the following headers:
+Authorization: Basic U3VqYWxGb29kczpTdWphbEZvb2RzQDEyMw==
+Content-Type: application/json
+The Base64 encoded value above is derived from:
+Base64("SujalFoods:SujalFoods@123") = U3VqYWxGb29kczpTdWphbEZvb2RzQDEyMw==
+2.4 Sample cURL Request
+curl -X POST http://dms.salesport.in/sap/bp-master/ \
+-u "SujalFoods:SujalFoods@123" \
+-H "Content-Type: application/json" \
+-d '{"customer_code": "CUST1001", ...}'
+2.5 Security Guidelines
+ Credentials must never be embedded in URLs or query parameters.
+ Failed authentication returns HTTP 401 Unauthorized.
+ All API requests must include the Authorization header with every call.
+ Credentials should be stored securely and not hard-coded in client applications.
+2.6 HTTP Response Codes
+Code Status Description
+200 OK Resource updated successfully
+201 Created Resource created successfully
+400 Bad Request Validation failed — see response body
+for details
+© 2026 Sort String Solutions LLP | Confidential | Page 10
+
+-- 10 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+401 Unauthorized Missing or invalid Basic Auth
+credentials
+404 Not Found Resource with the given ID does not
+exist
+405 Method Not Allowed HTTP method not supported on this
+endpoint
+500 Internal Server Error Unexpected server-side error
+201 Created Resource created successfully
+© 2026 Sort String Solutions LLP | Confidential | Page 11
+
+-- 11 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3. API Endpoints Reference
+This section documents each API endpoint with its request schema, validation rules, sample payloads,
+and expected responses.
+3.0 API Endpoints Summary
+# Module POST (Create) PUT (Update)
+3.1 BP Master /sap/bp-master/ /sap/bp-master/{id}/
+3.2 Blanket Agreement /sap/blanket-agreement/ /sap/blanket-agreement/
+{id}/
+3.3 Greater Circles /sap/greater-circles/ /sap/greater-circles/{id}/
+3.4 Circles /sap/circles/ /sap/circles/{id}/
+3.5 Container /sap/container/ /sap/container/{id}/
+3.6 Matrix /sap/matrix/ /sap/matrix/{id}/
+3.7 Product Class /sap/product-class/ /sap/product-class/{id}/
+3.8 Product Name /sap/product-name/ /sap/product-name/{id}/
+3.9 Payment Terms /sap/payment-terms/ /sap/payment-terms/{id}/
+3.10 Price List Group /sap/price-list-group/ /sap/price-list-group/{id}/
+3.11 Price List /sap/price-list/ /sap/price-list/{id}/
+3.12 Special Price List /sap/special-price-list/ /sap/special-price-list/{id}/
+3.13 Products (Variants) /sap/products/ /sap/products/{id}/
+3.14 Delivery Order /sap/delivery-order/ /sap/delivery-order/{id}/
+3.15 Balance Status Update — /sap/balance-status-update/
+3.16 Order Status Sync — /sap/order-status-sync/
+© 2026 Sort String Solutions LLP | Confidential | Page 12
+
+-- 12 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.1 Business Partner (BP) Master
+Creates or updates a single Business Partner record from SAP. If customer_code already exists in
+SalesPort, the record is updated; otherwise a new record is created.
+Endpoints
+Method Endpoint Description
+POST /sap/bp-master/ Create new Business Partner (BP)
+Master
+PUT /sap/bp-master/{id}/ Update Business Partner (BP) Master
+by ID
+Business Rules & Validation
+ customer_code is the unique identifier – only one record per customer_code.
+ email_id and contact_number must be unique across all BPs.
+ contact_country_code must be in valid international format (e.g., +977, +91).
+ Status supports Y/N or 1/0 values.
+ Only single record payloads are allowed (bulk disabled).
+ cost_center_master is optional; accepts alphanumeric + space + dot; normalized to uppercase.
+Request Schema
+Field Type Required Description
+customer_code string Yes Unique SAP
+customer/dealer code
+store_name string Yes Business/store display
+name
+first_name string Yes Contact first name
+middle_name string No Contact middle name
+last_name string Yes Contact last name
+contact_number string Yes Primary phone number
+(unique)
+email_id string No Email address (unique,
+nullable)
+date_of_birth string No Date of birth (YYYY-MM-DD)
+organization_name string No Parent organization
+department_name string No Department name
+role_name string No Assigned role / designation
+reporting_to_emp string No SAP ID of the reporting
+employee
+cost_center_master string No Cost center code
+(alphanumeric, optional)
+status string Yes Active status: Y/N or 1/0
+payment_term_name string No Payment terms reference
+© 2026 Sort String Solutions LLP | Confidential | Page 13
+
+-- 13 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+name
+rate_group_name string No Pricing / rate group name
+bill_to_address_line_1 string Yes Billing address
+bill_to_country_name string Yes Billing country
+ship_to_address_line_1 string Yes Shipping address
+ship_to_country_name string Yes Shipping country
+contact_country_code string Yes International dialing code
+(e.g. +977)
+greater_circle_name string No Zone / region name (must
+exist)
+circle_name string No Town / area name (must
+exist)
+vat_number string(15) Yes VAT registration number
+pan_number string(15) Yes PAN / tax ID number
+date_of_joining string Yes Date of onboarding (YYYY-
+MM-DD)
+bank_guarantee_amount string No Bank guarantee value
+bank_guarantee_expiry string No BG expiry date (YYYY-MM-
+DD)
+Sample Request Payload (POST)
+{
+"store_name": "Param Dairy Store",
+"first_name": "Ram",
+"middle_name": "Kumar",
+"last_name": "Sharma",
+"contact_country_code": "+977",
+"contact_number": "9800000000",
+"email_id": "",
+"date_of_birth": "1995-06-15",
+"bill_to_address_line_1": "Kathmandu Main Road",
+"bill_to_country_name": "Nepal",
+"ship_to_address_line_1": "Warehouse Area",
+"ship_to_country_name": "Nepal",
+"role_name": "Dealer Incharger",
+"vat_number": "123456789",
+"pan_number": "123456789",
+"customer_code": "CUST1013",
+"date_of_joining": "2026-01-15",
+"bank_guarantee_amount": "100000",
+"reporting_to_emp": "EMP001",
+"bank_guarantee_expiry": "2026-06-15",
+"greater_circle_name": "Zone A",
+"circle_name": "Town X",
+"payment_terms": "Net 30",
+"rate_group": "Standard",
+"status": "Y",
+"cost_center_master": "CC.100"
+© 2026 Sort String Solutions LLP | Confidential | Page 14
+
+-- 14 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+}
+Responses
+Code Description
+201 BP Master created successfully
+200 Record updated successfully
+400 Validation error – see response body
+401 Unauthorized – invalid or missing credentials
+© 2026 Sort String Solutions LLP | Confidential | Page 15
+
+-- 15 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.2 Blanket Agreement
+Creates a new Blanket Agreement with line items. Blanket Agreements define quantity or financial
+commitments between the organization and a Business Partner over a defined period.
+Endpoints
+Method Endpoint Description
+POST /sap/blanket-agreement/ Create new Blanket Agreement
+PUT /sap/blanket-agreement/{id}/ Update Blanket Agreement by ID
+Business Rules & Validation
+ bp_code is unique – only one agreement per business partner.
+ agreement_method accepts: qty (Quantitative) or financial.
+ Quantitative – General: requires line_number, item_code, item_name, planned_quantity,
+portion_of_returns.
+ Quantitative – Specific: all general fields plus unit_price.
+ Financial: requires line_number, planned_amount, portion_of_returns.
+ start_date cannot be greater than end_date.
+ Duplicate line_number values in the same agreement are rejected.
+ Status supports A/T (Approved/Terminated).
+Request Schema
+Field Type Required Description
+id integer Yes Auto-generated primary key
+bp_code string(20) Yes Business partner customer
+code
+bp_name string(255) Yes Business partner name
+agreement_method object Yes Method: qty (Quantitative)
+or financial
+agreement_type string No Type: general or specific
+scheme_name string(255) No Scheme / agreement name
+status string(20) Yes Active status: Y/N or 1/0
+start_date string Yes Agreement start date (YYYY-
+MM-DD)
+end_date string Yes Agreement end date (YYYY-
+MM-DD)
+blanket_agreement_lines array Yes Array of line items
+Sample Request Payload (POST)
+{
+"bp_code": "CUST1001",
+"agreement_method": "qty",
+"agreement_type": "general",
+© 2026 Sort String Solutions LLP | Confidential | Page 16
+
+-- 16 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+"start_date": "2026-01-01",
+"end_date": "2026-12-31",
+"status": "A",
+"lines": [
+{
+"line_number": 1,
+"item_code": "FR0001",
+"item_name": "Fresh Milk 500ml",
+"planned_quantity": "1000",
+"portion_of_returns": "5"
+}
+]
+}
+Responses
+Code Description
+201 Blanket Agreement created successfully
+200 Record updated successfully
+400 Validation error – see response body
+401 Unauthorized – invalid or missing credentials
+© 2026 Sort String Solutions LLP | Confidential | Page 17
+
+-- 17 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.3 Greater Circles
+Manages zone-level geographic groupings for territory management.
+Endpoints
+Method Endpoint Description
+POST /sap/greater-circles/ Create new Greater Circles
+PUT /sap/greater-circles/{id}/ Update Greater Circles by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ Purely numeric names are rejected.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+id integer Yes Auto-generated primary key
+greater_circle string(50) Yes Zone / region name
+(unique)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Zone A",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 18
+
+-- 18 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.4 Circles
+Manages town/area-level geographic groupings within a Greater Circle.
+Endpoints
+Method Endpoint Description
+POST /sap/circles/ Create new Circles
+PUT /sap/circles/{id}/ Update Circles by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ greater_circle_name must exist.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+id integer Yes Auto-generated primary key
+circle string(50) Yes Town / area name (unique)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Town X",
+"greater_circle_name": "Zone A",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 19
+
+-- 19 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.5 Container
+Manages container (packaging) master data.
+Endpoints
+Method Endpoint Description
+POST /sap/container/ Create new Container
+PUT /sap/container/{id}/ Update Container by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ Purely numeric names are rejected.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+container string(50) Yes Container / packaging name
+(unique)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "CRATE",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 20
+
+-- 20 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.6 Matrix
+Manages custom grouping/attribute master for reporting and assignment.
+Endpoints
+Method Endpoint Description
+POST /sap/matrix/ Create new Matrix
+PUT /sap/matrix/{id}/ Update Matrix by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+id integer Yes Auto-generated primary key
+sujal_matrix_name string(50) Yes Matrix grouping name
+(unique)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Matrix Group 1",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 21
+
+-- 21 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.7 Product Class
+Manages product category classifications with measurement units.
+Endpoints
+Method Endpoint Description
+POST /sap/product-class/ Create new Product Class
+PUT /sap/product-class/{id}/ Update Product Class by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ unit accepts: Kg, Ltr, Pcs, etc.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+product_class string(50) Yes Product category name
+(unique)
+unit string(50) Yes Measurement unit (Kg, Ltr,
+Pcs, etc.)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Dairy Products",
+"unit": "Ltr",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 22
+
+-- 22 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.8 Product Name
+Manages the primary product identifier in the catalog.
+Endpoints
+Method Endpoint Description
+POST /sap/product-name/ Create new Product Name
+PUT /sap/product-name/{id}/ Update Product Name by ID
+Business Rules & Validation
+ name must be unique (case-insensitive).
+ product_class_name must exist.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+product_name string(50) Yes Product catalog name
+(unique)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Fresh Milk",
+"product_class_name": "Dairy Products",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 23
+
+-- 23 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.9 Payment Terms
+Manages credit policies and payment due-date calculations.
+Endpoints
+Method Endpoint Description
+POST /sap/payment-terms/ Create new Payment Terms
+PUT /sap/payment-terms/{id}/ Update Payment Terms by ID
+Business Rules & Validation
+ payment_term_name must be unique.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+payment_term_name string(50) Yes Payment terms reference
+name
+term_days string No Number of credit days
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"payment_term_name": "Net 30",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 24
+
+-- 24 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.10 Price List Group
+Manages pricing group master records.
+Endpoints
+Method Endpoint Description
+POST /sap/price-list-group/ Create new Price List Group
+PUT /sap/price-list-group/{id}/ Update Price List Group by ID
+Business Rules & Validation
+ name must be unique.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+rate_group_name string(50) Yes Pricing / rate group name
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"name": "Standard",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 25
+
+-- 25 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.11 Price List
+Manages item-level pricing entries mapping rate groups to item codes.
+Endpoints
+Method Endpoint Description
+POST /sap/price-list/ Create new Price List
+PUT /sap/price-list/{id}/ Update Price List by ID
+Business Rules & Validation
+ rate_group and item_code combination must be unique.
+ container_price must be a valid decimal.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+rate_group_name string(50) Yes Pricing / rate group name
+item_code string(20) Yes Product variant SKU code
+(must exist)
+container_price string(20) Yes Unit price per container /
+SKU
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"rate_group": "Standard",
+"item_code": "FR0001",
+"container_price": "1585.54",
+"status": "Y"
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 26
+
+-- 26 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.12 Special Price List
+Manages party-specific pricing with discounts and validity periods.
+Endpoints
+Method Endpoint Description
+POST /sap/special-price-list/ Create new Special Price List
+PUT /sap/special-price-list/{id}/ Update Special Price List by ID
+Business Rules & Validation
+ party_code and item_code combination must be unique.
+ discount must be between 0 and 100.
+ start_date cannot be greater than end_date.
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+rate_group_name string(50) Yes Pricing / rate group name
+item_code string(20) Yes Product variant SKU code
+(must exist)
+container_price string(20) Yes Unit price per container /
+SKU
+discount string(10) Yes Discount percentage (0–
+100)
+party_code string(20) Yes Business partner customer
+code
+start_date string Yes Agreement start date (YYYY-
+MM-DD)
+end_date string Yes Agreement end date (YYYY-
+MM-DD)
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"item_code": "FR0123",
+"container_price": "1585.54",
+"discount": "10",
+"party_code": "CUST1000",
+"start_date": "2022-01-01",
+"end_date": "2022-12-31",
+"status": "Y"
+}
+© 2026 Sort String Solutions LLP | Confidential | Page 27
+
+-- 27 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 28
+
+-- 28 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.13 Products (Variants)
+Manages SKU-level product variants with tax codes and packaging details.
+Endpoints
+Method Endpoint Description
+POST /sap/products/ Create new Products (Variants)
+PUT /sap/products/{id}/ Update Products (Variants) by ID
+Business Rules & Validation
+ product_name must reference an existing Product Name.
+ variant_code must be unique (case-insensitive).
+ sujal_matrix must reference an existing Matrix.
+ primary_selling_unit_name and secondary_selling_unit_name must reference existing Containers.
+ tax_code must be a non-empty list of {country_name, tax_name, tax_percentage} objects.
+ tax_percentage must be between 0 and 100.
+ is_packaging_allow supports Y/N or 1/0.
+ Only single payload allowed (bulk disabled).
+ Status supports Y/N or 1/0.
+Request Schema
+Field Type Required Description
+product_name string(100) Yes Product catalog name
+(unique)
+hsn_code string(50) Yes HSN/SAC code for tax
+classification
+variant_code string(25) Yes Unique SKU / variant
+identifier
+sujal_matrix string(255) Yes Matrix name (must exist in
+Matrix master)
+primary_selling_unit_name string(100) Yes Primary container (e.g.
+CRATE)
+secondary_selling_unit_nam
+e
+string(100) Yes Secondary container (e.g.
+POUCH)
+no_of_secondary_in_primary integer Yes Secondary units per primary
+unit
+uom_type string(50) Yes Unit of measure type
+mrp string Yes Maximum retail price
+production_unit integer Yes Manufacturing / production
+unit name
+tax_code array Yes Tax entries [{country_name,
+tax_name, tax_percentage}]
+is_packaging_allow string Yes Packaging permitted (Y/N or
+1/0)
+© 2026 Sort String Solutions LLP | Confidential | Page 29
+
+-- 29 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+status string(1) Yes Active status: Y/N or 1/0
+Sample Request Payload (POST)
+{
+"product_name": "SAMPLE PRODUCT",
+"hsn_code": "0401",
+"variant_code": "SKU001",
+"sujal_matrix": "Matrix Group 1",
+"primary_selling_unit_name": "CRATE",
+"primary_selling_unit_quantity": 12,
+"secondary_selling_unit_name": "POUCH",
+"secondary_selling_unit_quantity": 1,
+"is_packaging_allow": "Y",
+"status": "Y",
+"tax_code": [
+{
+"country_name": "Nepal",
+"tax_name": "VAT",
+"tax_percentage": "13"
+}
+]
+}
+Responses
+Code Description
+201 Created
+200 Updated
+400 Validation error
+401 Unauthorized
+© 2026 Sort String Solutions LLP | Confidential | Page 30
+
+-- 30 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.14 Delivery Order
+Creates or updates a Delivery Order with nested item details from SAP. Delivery Orders represent goods
+dispatched from warehouse to distributors.
+Endpoints
+Method Endpoint Description
+POST /sap/delivery-order/ Create new Delivery Order
+PUT /sap/delivery-order/{id}/ Update Delivery Order by ID
+Business Rules & Validation
+ do_entry, do_number, doc_entry, doc_number_so are required identifiers.
+ do_amount, do_tax, do_total cannot be negative.
+ do_details must contain at least one item detail entry.
+ Duplicate item_code values within the same order are rejected.
+ item_code in do_details must reference an existing Product Variant.
+ rate and amount in do_details cannot be negative.
+ quantity must be greater than 0.
+ expiry_date cannot be before mfg_date.
+ On update (PUT), existing do_details are replaced with the new set.
+Request Schema
+Field Type Required Description
+id integer Yes Auto-generated primary key
+invoice_number string(50) No Invoice reference number
+do_entry string(50) Yes Delivery Order entry
+identifier
+do_number string(50) Yes Delivery Order number
+doc_entry string(50) Yes SAP document entry
+reference
+doc_number_so string(50) Yes SAP Sales Order document
+number
+do_date string Yes Delivery date (YYYY-MM-DD)
+do_amount string Yes Delivery order amount ( 0)	≥
+do_tax string Yes Tax amount ( 0)	≥
+do_total string Yes Total amount incl. tax ( 0)	≥
+production_unit string(100) Yes Manufacturing / production
+unit name
+do_details array Yes Array of delivery order line
+items
+Delivery Order Details (Nested Object)
+Field Type Required Description
+© 2026 Sort String Solutions LLP | Confidential | Page 31
+
+-- 31 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+item_code string(50) Yes Product variant SKU code
+(must exist)
+rate string Yes Unit rate ( 0)	≥
+quantity string Yes Quantity delivered (> 0)
+uom string(20) Yes Unit of measure
+batch_number string(100) No Batch identifier (nullable)
+mfg_date string No Manufacturing date (YYYY-
+MM-DD, nullable)
+expiry_date string No Expiry date (YYYY-MM-DD,
+nullable)
+amount string Yes Line item amount ( 0)	≥
+Sample Request Payload (POST)
+{
+"invoice_number": "INV001",
+"do_entry": "DOE001",
+"do_number": "DO-001",
+"doc_entry": "DOC001",
+"doc_number_so": "DOC-SO-001",
+"do_date": "2026-02-20",
+"do_amount": "5000.00",
+"do_tax": "650.00",
+"do_total": "5650.00",
+"production_unit": "Unit A",
+"do_details": [
+{
+"item_code": "SKU001",
+"rate": "100.00",
+"quantity": "50",
+"uom": "PCS",
+"batch_number": "B001",
+"mfg_date": "2026-01-01",
+"expiry_date": "2026-06-01",
+"amount": "5000.00"
+}
+]
+}
+Responses
+Code Description
+201 Delivery Order created successfully
+200 Record updated successfully
+400 Validation error – see response body
+401 Unauthorized – invalid or missing credentials
+© 2026 Sort String Solutions LLP | Confidential | Page 32
+
+-- 32 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.15 Balance Status Update
+Updates the outstanding balance amount for a Business Partner in SalesPort using the party_code as the
+lookup key. SAP triggers this endpoint whenever a distributor's account balance changes.
+Endpoints
+Method Endpoint Description
+PUT /sap/balance-status-update/ Update Balance Status Update
+Business Rules & Validation
+ party_code must reference an existing Business Partner in SalesPort.
+ updated_amount must be a valid decimal number (positive or negative).
+ Both fields are required – missing either returns HTTP 400.
+Request Schema
+Field Type Required Description
+party_code string(50) Yes Business partner customer
+code
+updated_amount number Yes New outstanding balance
+(decimal)
+Sample Request Payload (PUT)
+{
+"party_code": "PARTY001",
+"updated_amount": 1500.5
+}
+Responses
+Code Description
+200 Balance updated successfully.
+400 Validation error – missing or invalid fields.
+401 Unauthorized – invalid or missing credentials.
+404 Business Partner (party_code) not found.
+© 2026 Sort String Solutions LLP | Confidential | Page 33
+
+-- 33 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+3.16 Order Status Sync
+Updates the status of a Sales Order in SalesPort using doc_entry and doc_number_so as identifiers. SAP
+triggers this endpoint when an order is Cancelled, Closed, or re-Opened.
+Endpoints
+Method Endpoint Description
+PUT /sap/order-status-sync/ Update Order Status Sync
+Business Rules & Validation
+ doc_entry and doc_number_so must reference an existing Sales Order.
+ status is required. Supported values: Cancel, Close, Open.
+ All three fields are required – missing any returns HTTP 400.
+Request Schema
+Field Type Required Description
+doc_entry string(50) Yes SAP document entry reference
+doc_number_so string(50) Yes SAP Sales Order document number
+status string Yes Order status. Supported: Cancel, Cancelled,
+Close, Closed, Open, Pending, Approved
+Sample Request Payload (PUT)
+{
+"doc_entry": "DOC001",
+"doc_number_so": "DOC-SO-001",
+"status": "Cancel"
+}
+Responses
+Code Description
+200 Order status updated successfully.
+400 Validation error – missing or invalid fields.
+401 Unauthorized – invalid or missing credentials.
+404 Sales Order not found.
+© 2026 Sort String Solutions LLP | Confidential | Page 34
+
+-- 34 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+4. Data Conventions & Status Mapping
+4.1 Status Field Mapping
+All modules support flexible status values. The following mappings are applied:
+Input Value Interpreted As Description
+Y Active Record is active
+N Inactive Record is inactive
+1 Active Numeric equivalent of Y
+0 Inactive Numeric equivalent of N
+A / Approved Active Blanket Agreement approved
+T / Terminated Inactive Blanket Agreement terminated
+4.2 Date Format
+All date fields must follow the ISO 8601 format: YYYY-MM-DD (e.g., 2026-02-13).
+4.3 Decimal Fields
+Decimal fields (unit_price, planned_quantity, planned_amount, portion_of_returns, container_price,
+discount, tax_percentage) use dot (.) as the decimal separator.
+4.4 Naming Conventions
+ Names for Greater Circles, Circles, and Tax Master must contain at least one alphabetic character.
+ Purely numeric names are rejected by the validation layer.
+ Allowed characters: letters (a–z, A–Z), numbers (0–9), spaces, and underscores.
+ Name uniqueness is enforced case-insensitively.
+© 2026 Sort String Solutions LLP | Confidential | Page 35
+
+-- 35 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+5. Error Handling
+5.1 Error Response Format
+When a validation error occurs, the API returns HTTP 400 with a JSON response body:
+{
+"field_name": [
+"Error message describing the validation failure."
+],
+"another_field": [
+"Another error message."
+]
+}
+5.2 Common Error Scenarios
+Scenario HTTP
+Code
+Example Error
+Missing required field 400 {"customer_code": ["This field is
+required."]}
+Duplicate unique value 400 {"customer_code": ["This value already
+exists."]}
+Invalid email format 400 {"email_id": ["Enter a valid email
+address."]}
+Invalid date format 400 {"date_of_birth": ["Date has wrong
+format. Use YYYY-MM-DD."]}
+Invalid credentials 401 Authentication credentials were not
+provided.
+Resource not found 404 {"detail": "Not found."}
+5.3 Retry Strategy
+For transient errors (HTTP 500 or network timeouts), SAP should implement an exponential backoff retry
+strategy with a maximum of 3 retries.
+© 2026 Sort String Solutions LLP | Confidential | Page 36
+
+-- 36 of 37 --
+
+Sort String Solutions LLP | SalesPort – SAP B1 Integration API Documentation
+6. Appendix
+6.1 Glossary
+Term Definition
+SAP B1 SAP Business One – the ERP system acting as the data
+source
+SalesPort (SP) The sales distribution management platform (target
+system)
+BP Business Partner – a customer or dealer in the system
+Greater Circle A geographic zone or region for territory management
+Circle A town or sub-region within a Greater Circle
+Matrix A custom grouping attribute used for reporting
+Container A packaging/unit type (Crate, Pouch, Bottle, etc.)
+Blanket Agreement A contractual commitment for quantities or financial
+targets
+Price List A set of item-level pricing entries
+Variant A specific SKU under a Product Name
+6.2 Contact Information
+For technical queries, integration support, or credential requests, please contact:
+Organization Sort String Solutions LLP
+Email info@sortstring.com
+Subject SalesPort – SAP B1 Integration Support
+— End of Document —
+© 2026 Sort String Solutions LLP | Confidential | Page 37
+
+-- 37 of 37 --
+
