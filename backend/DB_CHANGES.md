@@ -1,0 +1,392 @@
+# DB-level changes — replicate these in the DMS project
+
+Everything our SAP-facing backend (`backend/src/sap/*.js`) writes to `abc_dms`,
+broken down by whether it's a hard schema change, an auto-created seed row, a
+data convention we adopted, or still pending.
+
+Apply these to your DMS project's database in the same order shown below.
+All MySQL DDL is idempotent (`IF NOT EXISTS`) where possible.
+
+| Migration file | What it creates / changes |
+|---|---|
+| `001_integration_transactions.sql` | `integration_transactions` (1.1) |
+| `002_blanket_agreement_and_payment_terms.sql` | `payment_terms`, `blanket_agreements`, `blanket_agreement_lines` (1.2, 1.3) |
+| `003_external_user_profiles_payment_term_fk.sql` | adds `external_user_profiles.payment_term_id` FK (1.4) |
+
+---
+
+## 1. Hard schema changes (must run as SQL)
+
+### 1.1 NEW TABLE — `integration_transactions`
+
+Logs every SAP → DMS API call across all 16 modules. Powers the console's
+API Logs, Overview, and Sync Queue views.
+
+**Status:** ✅ shipped — see `backend/migrations/001_integration_transactions.sql`.
+
+```sql
+CREATE TABLE IF NOT EXISTS integration_transactions (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  correlation_id VARCHAR(64) NOT NULL,
+
+  -- routing
+  module_id VARCHAR(40) NOT NULL,        -- 'bp-master', 'delivery-order', etc.
+  method VARCHAR(8) NOT NULL,            -- POST / PUT
+  path VARCHAR(255) NOT NULL,            -- /sap/bp-master/ or /sap/bp-master/123/
+  resource_id VARCHAR(64) NULL,          -- {id} from path on PUT, or BP code, etc.
+
+  -- outcome
+  status_code SMALLINT UNSIGNED NOT NULL,
+  pipeline_stage VARCHAR(20) NOT NULL DEFAULT 'completed',
+                                          -- queued / mapping / validate / transform / persist / completed / failed
+  error_message TEXT NULL,
+
+  -- telemetry
+  duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  bytes_in INT UNSIGNED NOT NULL DEFAULT 0,
+  bytes_out INT UNSIGNED NOT NULL DEFAULT 0,
+  retry_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+
+  -- payloads (JSON for easy querying)
+  request_headers JSON NULL,
+  request_body JSON NULL,
+  response_body JSON NULL,
+
+  -- caller context
+  remote_ip VARCHAR(45) NULL,
+  user_agent VARCHAR(255) NULL,
+
+  -- denormalized convenience columns used by the console
+  distributor_name VARCHAR(255) NULL,
+  customer_code VARCHAR(50) NULL,
+  doc_number VARCHAR(50) NULL,           -- DO number, SO number, etc.
+
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+
+  KEY idx_intx_created_at (created_at DESC),
+  KEY idx_intx_module_created (module_id, created_at DESC),
+  KEY idx_intx_status (status_code),
+  KEY idx_intx_correlation (correlation_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### 1.2 NEW TABLE — `payment_terms` (spec §3.9)
+
+Dedicated table for SAP Payment Terms. Previously rode on `payment_preferences`,
+but that table has no `term_days` and the wrong unique-key shape, so we split
+it out.
+
+**Status:** ✅ shipped — see `backend/migrations/002_blanket_agreement_and_payment_terms.sql`.
+
+```sql
+CREATE TABLE IF NOT EXISTS payment_terms (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(32) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+
+  payment_term_name VARCHAR(50) NOT NULL,
+  code              VARCHAR(50) NULL,
+  term_days         SMALLINT UNSIGNED NULL,
+  description       VARCHAR(255) NULL,
+
+  created_by_id BIGINT NULL,
+  updated_by_id BIGINT NULL,
+
+  UNIQUE KEY uq_payment_terms_name (payment_term_name),
+  UNIQUE KEY uq_payment_terms_code (code),
+  KEY idx_payment_terms_is_active (is_active),
+  CONSTRAINT fk_payment_terms_created_by FOREIGN KEY (created_by_id) REFERENCES users(id),
+  CONSTRAINT fk_payment_terms_updated_by FOREIGN KEY (updated_by_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Endpoint behavior:
+- `POST /sap/payment-terms/` writes here; auto-derives `code` from name if absent.
+- `PUT /sap/payment-terms/` accepts `code` in body (preferred) or `:id` in URL.
+- `term_days` accepted as string or int; rejected if not a non-negative integer.
+
+### 1.3 NEW TABLES — `blanket_agreements` + `blanket_agreement_lines` (spec §3.2)
+
+Header + line-items pair. Replaces the previous mapping onto
+`schemes` + `scheme_rules` so the SAP-side data shape is preserved exactly.
+
+**Status:** ✅ shipped — see `backend/migrations/002_blanket_agreement_and_payment_terms.sql`.
+
+**Header:**
+```sql
+CREATE TABLE IF NOT EXISTS blanket_agreements (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(32) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+
+  bp_code VARCHAR(20) NOT NULL,
+  bp_name VARCHAR(255) NOT NULL,
+  party_id BIGINT NULL,                        -- FK → external_user_profiles.id
+
+  agreement_method ENUM('qty', 'financial') NOT NULL,
+  agreement_type   ENUM('general', 'specific') NULL,
+  scheme_name      VARCHAR(255) NULL,
+
+  start_date DATE NOT NULL,
+  end_date   DATE NOT NULL,
+  status     ENUM('A', 'T') NOT NULL DEFAULT 'A',
+
+  created_by_id BIGINT NULL,
+  updated_by_id BIGINT NULL,
+
+  KEY idx_blanket_agreements_bp_code (bp_code),
+  KEY idx_blanket_agreements_party (party_id),
+  KEY idx_blanket_agreements_status_date (status, end_date),
+  CONSTRAINT fk_blanket_agreements_party
+    FOREIGN KEY (party_id) REFERENCES external_user_profiles(id) ON DELETE SET NULL,
+  CONSTRAINT fk_blanket_agreements_created_by FOREIGN KEY (created_by_id) REFERENCES users(id),
+  CONSTRAINT fk_blanket_agreements_updated_by FOREIGN KEY (updated_by_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+**Lines:**
+```sql
+CREATE TABLE IF NOT EXISTS blanket_agreement_lines (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(32) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+
+  agreement_id BIGINT NOT NULL,
+  line_number  INT UNSIGNED NOT NULL,
+
+  -- qty shape
+  item_code  VARCHAR(50) NULL,
+  item_name  VARCHAR(255) NULL,
+  product_id BIGINT NULL,                      -- FK → products.id
+  planned_quantity DECIMAL(14,2) NULL,
+  unit_price       DECIMAL(14,2) NULL,         -- only Specific
+
+  -- financial shape
+  planned_amount   DECIMAL(14,2) NULL,
+
+  -- common
+  portion_of_returns DECIMAL(5,2) NULL,
+
+  created_by_id BIGINT NULL,
+  updated_by_id BIGINT NULL,
+
+  UNIQUE KEY uq_blanket_lines_agmt_line (agreement_id, line_number),
+  KEY idx_blanket_lines_product (product_id),
+  CONSTRAINT fk_blanket_lines_agreement
+    FOREIGN KEY (agreement_id) REFERENCES blanket_agreements(id) ON DELETE CASCADE,
+  CONSTRAINT fk_blanket_lines_product
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+  CONSTRAINT fk_blanket_lines_created_by FOREIGN KEY (created_by_id) REFERENCES users(id),
+  CONSTRAINT fk_blanket_lines_updated_by FOREIGN KEY (updated_by_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Endpoint behavior:
+- One **open** (`status = 'A'`) agreement per `bp_code` — enforced in application code.
+- `agreement_method = 'qty'`: line needs `item_code`, `item_name`, `planned_quantity`, `portion_of_returns`
+  (`unit_price` additionally when `agreement_type = 'specific'`).
+- `agreement_method = 'financial'`: line needs `planned_amount`, `portion_of_returns`.
+- PUT can target by URL `:id` or by `body.bp_code` (finds the BP's most recent agreement).
+- PUT replaces all lines if `lines` is supplied; otherwise updates header only.
+
+### 1.4 NEW COLUMN — `external_user_profiles.payment_term_id` (FK → payment_terms)
+
+BP Master (spec §3.1) accepts `payment_terms` (or `payment_term_name`) in its
+payload — that value resolves to a row in the dedicated `payment_terms` table
+(section 1.2) and is stored as a FK on the BP profile.
+
+**Status:** ✅ shipped — see `backend/migrations/003_external_user_profiles_payment_term_fk.sql`.
+
+```sql
+ALTER TABLE external_user_profiles
+  ADD COLUMN payment_term_id BIGINT NULL;
+
+ALTER TABLE external_user_profiles
+  ADD CONSTRAINT fk_eup_payment_term
+    FOREIGN KEY (payment_term_id) REFERENCES payment_terms(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_eup_payment_term ON external_user_profiles (payment_term_id);
+```
+
+Endpoint behavior:
+- POST resolves `payment_terms` by name (case-insensitive) OR by `code` (uppercased),
+  then writes `payment_term_id`. Missing reference → **400** with field-level error.
+- PUT can change the FK by sending the new `payment_terms` value.
+- DELETE SET NULL — if a payment-terms row is deleted, BPs pointing at it just lose
+  the reference; the BP profile stays intact.
+
+---
+
+## 2. Auto-created seed rows (the backend creates these on demand)
+
+These are NOT schema changes — the data lands in *existing* DMS tables, but the
+backend writes them the first time it needs them. You can pre-seed them in the
+DMS project if you want a cleaner setup, or just leave the backend to self-heal.
+
+| Table | When created | Row written |
+|---|---|---|
+| `production_lines` | First Product Class POST when default line missing | `{ code: 'DEFAULT_LINE', name: 'DEFAULT_LINE', is_active: 1 }` (controlled by `DEFAULT_PRODUCTION_LINE_CODE` in `.env`) |
+| `scheme_types`    | First Blanket Agreement POST | `{ code: 'BLANKET_SAP', name: 'Blanket Agreement (SAP)', is_globally_active: 1, field_visibility_json: '{}' }` |
+| `price_lists`     | First Price List row per `price_group_id` | "rolling" header: `{ file_name: 'sap-sync', effective_from: today, effective_to: '2099-12-31', status: 'ACTIVE' }` |
+| `special_price_lists` | First Special Price List row | "rolling" header: `{ file_name: 'sap-sync', status: 'ACTIVE' }` |
+| `users` (paired user per BP) | First BP Master POST per `customer_code` | `{ email: <bp.email_id> or '<customer_code>@sap.local', password: '!sap' (unusable), user_type: 'EXTERNAL', is_active: <status> }` |
+
+To pre-seed manually in your DMS:
+
+```sql
+-- Default production line (avoids NOT NULL conflict on production_categories.production_line_id)
+INSERT IGNORE INTO production_lines (uuid, created_at, updated_at, is_active, name, code)
+  VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'DEFAULT_LINE', 'DEFAULT_LINE');
+
+-- Scheme type used for SAP-pushed blanket agreements
+INSERT IGNORE INTO scheme_types
+  (uuid, created_at, updated_at, is_active, name, code, description, icon, sort_order, is_globally_active, field_visibility_json)
+  VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+          'Blanket Agreement (SAP)', 'BLANKET_SAP', '', '', 999, 1, '{}');
+```
+
+---
+
+## 3. Data conventions our backend relies on
+
+Not schema changes, but conventions you must keep consistent in the DMS project
+so the SAP integration keeps resolving the right rows.
+
+### 3.1 Product Name → `master_lookups`
+
+Section 3.8 of the spec has no dedicated table in DMS. We store every distinct
+Product Name as a row in `master_lookups` with:
+
+| Column | Value |
+|---|---|
+| `category` | `'PRODUCT_NAME'` (fixed string — used as the discriminator) |
+| `label` | the product name (case-insensitive uniqueness within `category='PRODUCT_NAME'`) |
+| `value` | the `production_categories.id` it belongs to, as a string (so we can reverse-lookup the Product Class) |
+
+If the DMS project's UI currently shows the distinct values from `products.product_name` directly,
+keep that view but also expose the lookup-table list. Adding a new product name only via the SAP
+endpoint puts a row in `master_lookups`, not in `products`.
+
+### 3.2 Container `level` discriminator
+
+Section 3.5 maps to `packaging_types`. The `level` column on that table must
+accept: `PRIMARY`, `SECONDARY`, `TERTIARY`.
+
+- SAP payload `level` field defaults to `PRIMARY` when missing.
+- Products (3.13) references containers by name — both `primary_selling_unit_name`
+  and `secondary_selling_unit_name` must resolve to rows in `packaging_types`
+  (case-insensitive name match, level is **not** part of the lookup).
+
+### 3.3 Sales Order ↔ SAP reconciliation columns
+
+The `sales_orders` table already has these columns (we did NOT add them) — but
+the SAP push assumes they exist:
+
+| Column | Source |
+|---|---|
+| `sap_doc_entry`     | SAP's internal `DocEntry` (int) |
+| `sap_order_number`  | SAP's `DocNum` (varchar 50) |
+| `sap_sync_status`   | varchar(15) — we set to `'SYNCED'` |
+| `sap_synced_at`     | datetime |
+| `sap_synced_by_id`  | FK → `users.id` |
+
+If your DMS schema doesn't yet have these, add them before delivery orders or
+order-status-sync calls will work.
+
+### 3.4 Status / enum tokens we write
+
+| Module | Column | Tokens we write |
+|---|---|---|
+| Blanket Agreement | `schemes.status` | `APPROVED` / `TERMINATED` (mapped from SAP `A`/`T` or `Y`/`N`) |
+| Delivery Order | `sales_orders.status` | `DELIVERED` |
+| Order Status Sync | `sales_orders.status` | `CANCELLED` / `CLOSED` / `APPROVED` (mapped from SAP `Cancel` / `Close` / `Open`) |
+| BP Master | `external_user_profiles.status` | `ACTIVE` / `INACTIVE` |
+| All masters | `is_active` (boolean) | `1` / `0` (mapped from SAP `Y`/`N`/`1`/`0`) |
+
+If your DMS enums use different tokens, either adjust `backend/src/lib/statusMap.js`
+or align the DMS side to these.
+
+### 3.5 `code` column treated as the SAP-side stable identifier
+
+For every simple master that has a `code` column (`zones`, `towns`, `packaging_types`,
+`product_domains`, `production_categories`, `payment_preferences`, `price_groups`),
+the SAP payload accepts an explicit `code`:
+
+- if supplied → uppercased + trimmed, must be unique
+- if missing → auto-derived from `name` (UPPER_SNAKE)
+
+PUT requests can address the record by **`code` in the body** (preferred),
+**`code` in the URL** (back-compat), or **numeric `id` in the URL**.
+
+This is what lets SAP push updates without remembering DMS-side numeric IDs.
+Make sure the DMS project keeps `code` populated and unique for these tables.
+
+---
+
+## 4. Pending — must decide + run before this endpoint goes live
+
+Tracked in `backend/PENDING.md` and currently returns **501 Not Implemented**.
+
+### 4.1 ~~Q3 — Payment Terms `term_days`~~ ✅ resolved
+
+Resolved by section 1.2 above (new `payment_terms` table with native `term_days` column).
+The endpoint now persists `term_days` directly. No more decision needed.
+
+### 4.2 Q4 — Balance Status Update (module 3.15)
+
+Spec endpoint: `PUT /sap/balance-status-update/` with `{ party_code, updated_amount }`.
+Our `external_user_profiles` has no `outstanding_balance` column.
+
+**Recommended approach — new table with history:**
+```sql
+CREATE TABLE IF NOT EXISTS bp_balances (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  party_id BIGINT NOT NULL,
+  balance DECIMAL(14,2) NOT NULL,
+  set_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  set_via VARCHAR(20) NOT NULL DEFAULT 'sap-sync',
+  CONSTRAINT fk_bp_balances_party
+    FOREIGN KEY (party_id) REFERENCES external_user_profiles(id) ON DELETE CASCADE,
+  KEY idx_bp_balances_party_set_at (party_id, set_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+Each balance update inserts a row — letting you graph outstanding balance over
+time and audit who changed what when.
+
+**Alternative — single column on `external_user_profiles`:**
+```sql
+ALTER TABLE external_user_profiles
+  ADD COLUMN outstanding_balance DECIMAL(14,2) NOT NULL DEFAULT 0;
+```
+Simpler but no history.
+
+After either, remove the 501 stub from `backend/src/sap/balance-status-update.js`
+and wire the write.
+
+---
+
+## 5. Summary checklist for the DMS team
+
+- [ ] Run section 1.1 — create `integration_transactions` (one CREATE TABLE).
+- [ ] Run section 1.2 — create `payment_terms`.
+- [ ] Run section 1.3 — create `blanket_agreements` + `blanket_agreement_lines`.
+- [ ] Run section 1.4 — add `external_user_profiles.payment_term_id` FK column.
+- [ ] Decide section 4.2 — pick `bp_balances` table OR `external_user_profiles.outstanding_balance` column.
+- [ ] Verify your `sales_orders` has the SAP-sync columns from section 3.3.
+- [ ] Confirm `packaging_types.level` allows `PRIMARY` / `SECONDARY` / `TERTIARY`.
+- [ ] (Optional) Pre-seed the rows from section 2 if you don't want the backend to auto-create them.
+- [ ] Align your status / enum tokens with section 3.4, or change `backend/src/lib/statusMap.js`.
+
+Or just run both migrations against your DMS database in order:
+
+```bash
+mysql -u root -p abc_dms < backend/migrations/001_integration_transactions.sql
+mysql -u root -p abc_dms < backend/migrations/002_blanket_agreement_and_payment_terms.sql
+mysql -u root -p abc_dms < backend/migrations/003_external_user_profiles_payment_term_fk.sql
+```

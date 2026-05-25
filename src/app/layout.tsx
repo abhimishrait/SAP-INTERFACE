@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Junction · DMS ↔ SAP Integration Console',
-  description: 'SalesPort × SAP B1 Integration Console',
+  title: 'Integrator · DMS ↔ SAP Integration Console',
+  description: 'SalesPort × SAP Integration Console',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,92 +1,65 @@
 'use client';
 import React from 'react';
-import { Icons, Chip, PulseDot, Stat, ViewHeader } from '@/components';
-import { QUEUE_JOBS, QUEUE_RECENT, MODULE_BY_ID } from '@/data';
+import { Icons, Chip, Stat, ViewHeader, Status, Method } from '@/components';
+import { MODULE_BY_ID } from '@/data';
+import { useApi } from '@/lib/useApi';
+import { console_ } from '@/lib/api';
+import { relTimeNow } from '@/lib/adapters';
 
 export default function SyncQueue() {
-  const running = QUEUE_JOBS.filter(j => j.stage !== 'queued');
-  const queued = QUEUE_JOBS.filter(j => j.stage === 'queued');
+  const { data, loading, error, refetch } = useApi(() => console_.queue(), [], { pollMs: 4000 });
+  const recent = data?.recent || [];
+  const completed1h = recent.filter(r => Date.now() - new Date(r.created_at).getTime() < 3_600_000).length;
+  const failed = recent.filter(r => r.status_code >= 400).length;
 
   return (
     <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
       <ViewHeader
         title="Sync Queue"
-        sub="Each job moves SAP B1 payload through validation → mapping → DMS persist. State is durable in sync_jobs."
+        sub="Each SAP push moves through validate → mapping → persist synchronously. State lives in integration_transactions."
         actions={
           <>
-            <button className="btn"><Icons.pause /> Pause queue</button>
-            <button className="btn primary"><Icons.play /> + New job</button>
+            {error ? <Chip kind="err" dot>backend offline</Chip> : <Chip kind="ok" dot>{loading ? 'loading' : 'live'}</Chip>}
+            <button className="btn" onClick={refetch}><Icons.refresh /> Refresh</button>
           </>
         }
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
-        <Stat label="Running"        value="3" sub="avg 38s wall-time" />
-        <Stat label="Queued"         value="3" sub="ETA 06m 12s clear" />
-        <Stat label="Completed · 1h" value="412" trend="+12%" />
-        <Stat label="Failed · DLQ"   value="14" accent="var(--amber)" sub="auto-retry · max 3" />
-      </div>
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="hd">
-          <div>
-            <h3>Active jobs</h3>
-            <div className="sub">5-stage pipeline: queued → mapping → validate → transform → persist.</div>
-          </div>
-          <Chip kind="ok" dot>3 workers online</Chip>
-        </div>
-        <div className="body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {running.map(j => <JobRow key={j.id} job={j} live />)}
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="hd">
-          <h3>Queued · waiting for worker</h3>
-          <span style={{ fontSize: 11, color: 'var(--ink-2)' }} className="mono">{queued.length} jobs</span>
-        </div>
-        <table className="t">
-          <thead><tr><th>Job ID</th><th>Name</th><th>Module</th><th>Priority</th><th>Size</th><th>ETA</th><th></th></tr></thead>
-          <tbody>
-            {queued.map(j => {
-              const mod = MODULE_BY_ID[j.moduleId];
-              return (
-                <tr key={j.id}>
-                  <td className="mono" style={{ fontSize: 11.5 }}>{j.id}</td>
-                  <td>{j.name}</td>
-                  <td><span className="mono" style={{ fontSize: 11, color: 'var(--orange)' }}>{mod.code}</span> <span style={{ fontSize: 11.5 }}>{mod.label}</span></td>
-                  <td><PriorityChip p={j.priority} /></td>
-                  <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{j.size} rows</td>
-                  <td className="mono" style={{ fontSize: 11.5 }}>{j.eta}</td>
-                  <td style={{ textAlign: 'right' }}><button className="btn ghost" style={{ padding: '4px 8px' }}>Promote</button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+        <Stat label="Completed · 1h" value={String(completed1h)} sub="last hour" />
+        <Stat label="Failed"         value={String(failed)} accent={failed > 0 ? 'var(--amber)' : undefined} sub="status ≥ 400" />
+        <Stat label="Total tracked"  value={String(recent.length)} sub="visible in this view" />
       </div>
 
       <div className="card">
         <div className="hd">
           <h3>Recently completed</h3>
-          <button className="btn ghost"><Icons.refresh /> Replay all failed</button>
+          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-2)' }}>{recent.length} jobs</span>
         </div>
         <table className="t">
-          <thead><tr><th>Job ID</th><th>Name</th><th>Module</th><th>Size</th><th>Duration</th><th>Outcome</th></tr></thead>
+          <thead><tr>
+            <th>Job ID</th><th>Module</th><th>Path</th><th>Status</th><th>Duration</th><th>When</th><th>Outcome</th>
+          </tr></thead>
           <tbody>
-            {QUEUE_RECENT.map(j => {
-              const mod = MODULE_BY_ID[j.moduleId];
+            {recent.length === 0 && !loading && (
+              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--ink-3)' }}>
+                No completed jobs yet.
+              </td></tr>
+            )}
+            {recent.map(j => {
+              const mod = MODULE_BY_ID[j.module_id];
               return (
                 <tr key={j.id}>
-                  <td className="mono" style={{ fontSize: 11.5 }}>{j.id}</td>
-                  <td>{j.name}</td>
-                  <td><span className="mono" style={{ fontSize: 11, color: 'var(--orange)' }}>{mod.code}</span> <span style={{ fontSize: 11.5 }}>{mod.label}</span></td>
-                  <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{j.size} rows</td>
-                  <td className="mono" style={{ fontSize: 11.5 }}>{j.dur}</td>
+                  <td className="mono" style={{ fontSize: 11.5 }}>{j.job_id}</td>
+                  <td><span className="mono" style={{ fontSize: 11, color: 'var(--orange)' }}>{mod?.code || ''}</span> <span style={{ fontSize: 11.5 }}>{mod?.label || j.module_id}</span></td>
+                  <td><Method m={j.method} /> <span className="mono" style={{ color: 'var(--ink-1)', fontSize: 11 }}>{j.path}</span></td>
+                  <td><Status code={j.status_code} /></td>
+                  <td className="mono" style={{ fontSize: 11.5 }}>{j.duration_ms}ms</td>
+                  <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{relTimeNow(new Date(j.created_at))}</td>
                   <td>
-                    {j.stage === 'completed' && <Chip kind="ok"  dot>completed</Chip>}
-                    {j.stage === 'failed'    && <Chip kind="err" dot>{j.err}</Chip>}
-                    {j.stage === 'partial'   && <Chip kind="warn" dot>{j.err}</Chip>}
+                    {j.status_code < 400 && <Chip kind="ok" dot>completed</Chip>}
+                    {j.status_code >= 400 && j.status_code < 500 && <Chip kind="warn" dot>{j.error_message || 'rejected'}</Chip>}
+                    {j.status_code >= 500 && <Chip kind="err" dot>{j.error_message || 'failed'}</Chip>}
                   </td>
                 </tr>
               );
@@ -98,48 +71,3 @@ export default function SyncQueue() {
   );
 }
 
-function JobRow({ job, live }: { job: typeof QUEUE_JOBS[0]; live?: boolean }) {
-  const stages = ['queued', 'mapping', 'validate', 'transform', 'persist'];
-  const curIdx = stages.indexOf(job.stage);
-  const mod = MODULE_BY_ID[job.moduleId];
-
-  return (
-    <div style={{ padding: 14, background: 'var(--bg-2)', borderRadius: 10, border: '1px solid var(--line)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-        <span className="mono" style={{ fontSize: 11, color: 'var(--ink-2)' }}>{job.id}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-0)', flex: 1 }}>{job.name}</span>
-        <span className="mono" style={{ fontSize: 10.5, color: 'var(--orange)' }}>{mod.code} {mod.label}</span>
-        <PriorityChip p={job.priority} />
-        <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{job.size} rows · ETA {job.eta}</span>
-        {live && <Chip kind="ok" dot>running</Chip>}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
-        {stages.map((s, i) => (
-          <div key={s} style={{ padding: '7px 8px', borderRadius: 6, background: i < curIdx ? 'var(--bg-3)' : i === curIdx ? 'var(--orange-bg)' : 'var(--bg-1)', border: `1px solid ${i === curIdx ? 'var(--orange)' : 'var(--line)'}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 700, color: i <= curIdx ? 'var(--ink-0)' : 'var(--ink-3)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {i < curIdx
-                ? <Icons.check style={{ color: 'var(--teal)', width: 11, height: 11 }} />
-                : i === curIdx
-                  ? <PulseDot color="var(--orange)" />
-                  : <span style={{ width: 8, height: 8, borderRadius: '50%', border: '1px solid var(--ink-3)' }} />
-              }
-              {s}
-            </div>
-            {i === curIdx && (
-              <div style={{ marginTop: 6 }}>
-                <div className="prog"><div style={{ width: `${job.progress}%` }} /></div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PriorityChip({ p }: { p: string }) {
-  const c = p === 'high' ? 'var(--red)' : p === 'normal' ? 'var(--ink-1)' : 'var(--ink-3)';
-  return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: c }}>{p}</span>
-  );
-}

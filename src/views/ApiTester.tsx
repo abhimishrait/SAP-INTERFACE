@@ -1,8 +1,11 @@
 'use client';
 import React from 'react';
 import { Icons, Chip, Status, JsonBlock, SubHd } from '@/components';
-import { MODULES, MODULE_BY_ID, MAPPINGS_BY_MODULE, SAMPLE_PAYLOADS, RESPONSE_CODES, BASE_URL, AUTH_USER, AUTH_HEADER } from '@/data';
+import { MODULES, MODULE_BY_ID, MAPPINGS_BY_MODULE, SAMPLE_PAYLOADS, RESPONSE_CODES, AUTH_USER, AUTH_HEADER } from '@/data';
+import { sapCall, API_BASE } from '@/lib/api';
 import ImportModal, { getImportedCollections, saveImportedCollections, type ImportedCollection } from './ImportModal';
+
+const BASE_URL = API_BASE; // live backend (was the spec base URL)
 
 export default function ApiTester({ selectedModule, setSelectedModule, theme }: {
   selectedModule: string | null;
@@ -17,7 +20,17 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
   const [activeImported, setActiveImported] = React.useState<{ colId: string; reqIdx: number } | null>(null);
 
   const [method, setMethod] = React.useState(mod.methods[0]);
-  const [recordId, setRecordId] = React.useState('1');
+  // Pull a sensible default identifier from the sample body so the URL is always
+  // populated with something the backend can actually PUT against.
+  const codeFromSample = (id: string): string => {
+    const raw = (SAMPLE_PAYLOADS as any)[id]?.request;
+    if (!raw) return '';
+    try {
+      const obj = JSON.parse(raw);
+      return obj.code || obj.customer_code || obj.bp_code || obj.variant_code || obj.party_code || '';
+    } catch { return ''; }
+  };
+  const [recordId, setRecordId] = React.useState(() => codeFromSample(moduleId));
   const [tab, setTab] = React.useState('body');
   const [body, setBody] = React.useState((SAMPLE_PAYLOADS as any)[moduleId]?.request || '{}');
   const [sending, setSending] = React.useState(false);
@@ -35,11 +48,14 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
   React.useEffect(() => {
     setMethod(mod.methods[0]);
     setBody((SAMPLE_PAYLOADS as any)[moduleId]?.request || '{}');
+    setRecordId(codeFromSample(moduleId));
     setResponse(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleId]);
 
-  const isPutWithId = method === 'PUT' && mod.methods.includes('POST');
-  const fullPath = isPutWithId ? `${mod.path}${recordId}/` : mod.path;
+  // PUT identifies the record via `code` (or business key) in the request body,
+  // so the URL is always the bare module path — no /{id}/ segment.
+  const fullPath = mod.path;
   const fullUrl = `${BASE_URL}${fullPath}`;
 
   const openImported = (colId: string, reqIdx: number) => {
@@ -64,48 +80,23 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
     if (activeImported?.colId === colId) setActiveImported(null);
   };
 
-  const onSend = () => {
+  const onSend = async () => {
     setSending(true);
     setResponse(null);
-    const start = performance.now();
-    setTimeout(() => {
-      const elapsed = Math.round(performance.now() - start + 80 + Math.random() * 180);
-      let result: any;
-      let parsed: any = null;
-      try { parsed = body.trim() ? JSON.parse(body) : null; }
-      catch (e: any) {
-        result = { status: 400, statusText: 'Bad Request', body: { detail: 'Invalid JSON: ' + e.message }, ms: elapsed, size: body.length };
-        setResponse(result); setSending(false); return;
-      }
-      if (!user || !pass) {
-        result = { status: 401, statusText: 'Unauthorized', body: 'Authentication credentials were not provided.', ms: elapsed, size: 0 };
-        setResponse(result); setSending(false); return;
-      }
-      const required = (MAPPINGS_BY_MODULE[moduleId] || []).filter((f: any) => f.required);
-      const missing: string[] = [];
-      const flat = JSON.stringify(parsed || {});
-      for (const f of required) {
-        const fieldKey = (f as any).sap.split('[')[0].split('.')[0];
-        if (!flat.includes(`"${fieldKey}"`)) missing.push(fieldKey);
-      }
-      if (missing.length) {
-        const errBody: any = {};
-        missing.slice(0, 3).forEach(k => { errBody[k] = ['This field is required.']; });
-        result = { status: 400, statusText: 'Bad Request', body: errBody, ms: elapsed, size: JSON.stringify(errBody).length };
-        setResponse(result); setSending(false); return;
-      }
-      const sample = (SAMPLE_PAYLOADS as any)[moduleId]?.response;
-      const successCode = method === 'POST' ? 201 : 200;
-      result = {
-        status: successCode,
-        statusText: successCode === 201 ? 'Created' : 'OK',
-        body: sample ? JSON.parse(sample) : { ok: true },
-        ms: elapsed,
-        size: (sample || '').length,
-      };
+    let parsed: any = null;
+    try { parsed = body.trim() ? JSON.parse(body) : null; }
+    catch (e: any) {
+      setResponse({ status: 400, statusText: 'Bad Request (client-side)', body: { detail: 'Invalid JSON: ' + e.message }, ms: 0, size: body.length });
+      setSending(false); return;
+    }
+    try {
+      const result = await sapCall(method as 'POST' | 'PUT', fullPath, parsed, { user, pass });
       setResponse(result);
+    } catch (e: any) {
+      setResponse({ status: 0, statusText: 'Network error', body: { detail: e?.message || 'Failed to reach backend at ' + BASE_URL }, ms: 0, size: 0 });
+    } finally {
       setSending(false);
-    }, 320 + Math.random() * 220);
+    }
   };
 
   const onReset = () => {
@@ -137,7 +128,7 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
                 <span className="mono" style={{ fontSize: 12, color: 'var(--orange)', marginRight: 8 }}>{mod.code}</span>
                 {mod.label}
               </h2>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 2 }}>{mod.desc} · simulated against SalesPort DMS spec v1.2</div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 2 }}>{mod.desc} · live against the local DMS backend (spec v1.2)</div>
             </div>
           </div>
 
@@ -162,20 +153,10 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
             }}>
               <span className="mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>{BASE_URL}</span>
               <span className="mono" style={{ fontSize: 12.5, color: 'var(--orange)', fontWeight: 600 }}>{mod.path}</span>
-              {isPutWithId && (
-                <>
-                  <input
-                    value={recordId}
-                    onChange={e => setRecordId(e.target.value)}
-                    style={{
-                      width: 70, height: 28, marginLeft: -2,
-                      background: 'transparent', border: 'none', outline: 'none',
-                      fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12.5,
-                      color: 'var(--violet)', fontWeight: 600,
-                    }}
-                  />
-                  <span className="mono" style={{ fontSize: 12.5, color: 'var(--orange)', fontWeight: 600 }}>/</span>
-                </>
+              {method === 'PUT' && (
+                <span style={{ marginLeft: 10, fontSize: 10.5, color: 'var(--violet)', fontWeight: 600, letterSpacing: '0.04em' }}>
+                  · code in body
+                </span>
               )}
               <div style={{ flex: 1 }} />
             </div>
@@ -353,7 +334,7 @@ function TesterCollection({ moduleId, setSelectedModule, method, setMethod, impo
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 0' }}>
         <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icons.chev style={{ color: 'var(--orange)', transform: 'rotate(90deg)' }} />
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', letterSpacing: '0.02em' }}>SalesPort × SAP B1 · v1.2</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--orange)', letterSpacing: '0.02em' }}>SalesPort × SAP · v1.2</span>
           <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>30</span>
         </div>
 
@@ -614,7 +595,7 @@ function ResponsePane({ response, sending, tab, setTab, method, moduleId, url }:
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, padding: 30 }}>
         <Icons.send style={{ width: 36, height: 36, color: 'var(--ink-3)' }} />
         <div style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 600 }}>Hit Send to call <span className="mono" style={{ color: 'var(--orange)' }}>{url}</span></div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>The response will be simulated locally against the spec's validation rules.</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>The call will hit the real backend, run validation, write to abc_dms if it passes, and log to integration_transactions.</div>
       </div>
     );
   }

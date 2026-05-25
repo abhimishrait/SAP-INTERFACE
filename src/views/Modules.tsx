@@ -2,6 +2,7 @@
 import React from 'react';
 import { Icons, Chip, Method, Status, Stat, ViewHeader } from '@/components';
 import { MODULES, MODULE_BY_ID, MAPPINGS_BY_MODULE, STATUS_MAPPING, RESPONSE_CODES, ERROR_SCENARIOS } from '@/data';
+import { console_ } from '@/lib/api';
 
 export default function Modules({ setSelectedModule, setView }: {
   setSelectedModule: (id: string) => void;
@@ -21,11 +22,11 @@ export default function Modules({ setSelectedModule, setView }: {
     <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
       <ViewHeader
         title="Module Catalog"
-        sub={<>All 16 endpoints from the SAP B1 ↔ SalesPort spec v1.2 · base <span className="mono">http://dms.salesport.in</span></>}
+        sub={<>All 16 endpoints from the SAP ↔ SalesPort spec v1.2 · base <span className="mono">http://dms.salesport.in</span></>}
         actions={
           <>
             <Chip kind="info" dot>14 master + 2 transactional</Chip>
-            <button className="btn"><Icons.download /> Postman collection</button>
+            <a className="btn" href={console_.postmanUrl()}><Icons.download /> Postman collection</a>
           </>
         }
       />

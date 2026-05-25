@@ -139,30 +139,51 @@ export function Sparkline({ seed = 1, w = 120, h = 32, stroke = 'var(--teal)', f
   );
 }
 
-export function BarChart({ seed = 1, h = 120, color = 'var(--teal)' }: {
+export function BarChart({ seed = 1, h = 120, color = 'var(--teal)', bars: realBars, accent }: {
   seed?: number; h?: number; color?: string;
+  bars?: number[];     // real, raw counts; component normalizes against max
+  accent?: number[];   // optional secondary series (e.g. PUT counts) stacked above
 }) {
-  const bars: number[] = [];
-  for (let i = 0; i < 48; i++) {
-    const v = (Math.sin((i + seed) * 0.5) + Math.cos((i + seed * 1.7) * 0.3) + 2) / 4;
-    bars.push(0.15 + v * 0.85);
+  let bars: number[];
+  let stack: number[] | null = null;
+  if (realBars && realBars.length) {
+    const peak = Math.max(1, ...(accent ? realBars.map((b, i) => b + (accent[i] || 0)) : realBars));
+    bars = realBars.map(b => b / peak);
+    stack = accent ? accent.map(b => b / peak) : null;
+  } else {
+    bars = [];
+    for (let i = 0; i < 48; i++) {
+      const v = (Math.sin((i + seed) * 0.5) + Math.cos((i + seed * 1.7) * 0.3) + 2) / 4;
+      bars.push(0.15 + v * 0.85);
+    }
   }
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: h }}>
       {bars.map((b, i) => (
         <div key={i} style={{
-          flex: 1, height: `${b * 100}%`,
-          background: i === bars.length - 1 ? 'var(--orange)' : color,
-          opacity: i === bars.length - 1 ? 1 : 0.45 + b * 0.4,
-          borderRadius: '2px 2px 0 0',
-          minWidth: 2,
-        }} />
+          flex: 1, height: `${Math.max(b, stack?.[i] ? 0 : 0) * 100}%`,
+          display: 'flex', flexDirection: 'column-reverse', minWidth: 2,
+        }}>
+          <div style={{
+            height: `${b * 100}%`,
+            background: i === bars.length - 1 ? 'var(--orange)' : color,
+            opacity: i === bars.length - 1 ? 1 : 0.45 + b * 0.4,
+            borderRadius: stack && stack[i] ? '0' : '2px 2px 0 0',
+          }} />
+          {stack && stack[i] > 0 && (
+            <div style={{
+              height: `${stack[i] * 100}%`,
+              background: 'var(--orange)', opacity: 0.85,
+              borderRadius: '2px 2px 0 0',
+            }} />
+          )}
+        </div>
       ))}
     </div>
   );
 }
 
-export function TopBar({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
+export function TopBar({ theme, setTheme, env = 'staging' }: { theme: string; setTheme: (t: string) => void; env?: string }) {
   return (
     <div style={{
       height: 52, flexShrink: 0,
@@ -173,46 +194,13 @@ export function TopBar({ theme, setTheme }: { theme: string; setTheme: (t: strin
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
         <Chip kind="ok" dot>LIVE</Chip>
-        <span style={{ color: 'var(--ink-2)', fontSize: 12 }}>Tenant</span>
-        <span style={{ fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12, color: 'var(--ink-0)' }}>sujal-foods-prod</span>
-        <span style={{ color: 'var(--ink-3)' }}>·</span>
-        <span style={{ color: 'var(--ink-2)', fontSize: 12 }}>Region</span>
-        <span style={{ fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12, color: 'var(--ink-0)' }}>ap-south-1</span>
       </div>
 
-      <div style={{ flex: 1, maxWidth: 480, position: 'relative' }}>
-        <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-3)' }}>
-          <Icons.search />
-        </div>
-        <input
-          placeholder="Search txn id, distributor, customer_code, DO #…"
-          style={{
-            width: '100%', padding: '8px 12px 8px 34px',
-            background: 'var(--bg-2)', border: '1px solid var(--line)',
-            borderRadius: 8, color: 'var(--ink-0)', fontSize: 12.5,
-            fontFamily: 'inherit', outline: 'none',
-          }}
-        />
-        <span style={{
-          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-          fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 10, color: 'var(--ink-3)',
-          background: 'var(--bg-3)', padding: '2px 6px', borderRadius: 4,
-        }}>⌘K</span>
-      </div>
+      <div style={{ flex: 1 }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button className="btn ghost" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
           {theme === 'dark' ? <Icons.sun /> : <Icons.moon />}
-        </button>
-        <button className="btn ghost" style={{ position: 'relative' }}>
-          <Icons.bell />
-          <span style={{ position: 'absolute', top: 4, right: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--orange)' }} />
-        </button>
-        <button className="btn">
-          <Icons.refresh /> Replay DLQ
-        </button>
-        <button className="btn primary">
-          <Icons.play /> Run Pipeline
         </button>
         <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, var(--orange), var(--teal))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-orange)', fontWeight: 700, fontSize: 12 }}>SF</div>
       </div>

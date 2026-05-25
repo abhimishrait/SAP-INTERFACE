@@ -1,14 +1,15 @@
 'use client';
 import React from 'react';
-import { Icons, Chip, PulseDot } from '@/components';
+import { Icons } from '@/components';
 import type { AuthUser } from '@/views/Login';
-import { AUTH_USER } from '@/data';
 
-export default function Sidebar({ view, setView, user, onLogout }: {
+export default function Sidebar({ view, setView, user, onLogout, env, setEnv }: {
   view: string;
   setView: (v: string) => void;
   user: AuthUser;
   onLogout: () => void;
+  env: string;
+  setEnv: (e: string) => void;
 }) {
   const items = [
     { id: 'overview', label: 'Overview',      ico: Icons.overview, badge: null as string | null },
@@ -32,24 +33,27 @@ export default function Sidebar({ view, setView, user, onLogout }: {
           </svg>
         </div>
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em', lineHeight: 1.1 }}>SalesPort × SAP B1</div>
-          <div style={{ fontSize: 9.5, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 2 }}>Integration Console</div>
+          <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.015em', lineHeight: 1.1 }}>Integrator</div>
+          <div style={{ fontSize: 9.5, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 2 }}>SAP ⇄ DMS</div>
         </div>
       </div>
 
       <div style={{ background: 'var(--bg-2)', borderRadius: 8, padding: 10, marginBottom: 18, border: '1px solid var(--line)' }}>
         <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Environment</div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {['prod', 'staging', 'dev'].map((e, i) => (
-            <button key={e} className="clickable" style={{
-              flex: 1, padding: '5px 0',
-              background: i === 0 ? 'var(--bg-3)' : 'transparent',
-              border: i === 0 ? '1px solid var(--line-strong)' : '1px solid transparent',
-              borderRadius: 5, fontSize: 11, fontWeight: 600,
-              color: i === 0 ? 'var(--ink-0)' : 'var(--ink-2)',
-              fontFamily: 'inherit', cursor: 'pointer',
-            }}>{e}</button>
-          ))}
+          {['prod', 'staging', 'dev'].map((e) => {
+            const active = env === e;
+            return (
+              <button key={e} onClick={() => setEnv(e)} className="clickable" style={{
+                flex: 1, padding: '5px 0',
+                background: active ? 'var(--bg-3)' : 'transparent',
+                border: active ? '1px solid var(--line-strong)' : '1px solid transparent',
+                borderRadius: 5, fontSize: 11, fontWeight: 600,
+                color: active ? 'var(--ink-0)' : 'var(--ink-2)',
+                fontFamily: 'inherit', cursor: 'pointer',
+              }}>{e}</button>
+            );
+          })}
         </div>
       </div>
 
@@ -76,42 +80,23 @@ export default function Sidebar({ view, setView, user, onLogout }: {
         })}
       </div>
 
-      <div style={{ marginTop: 20, fontSize: 10, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '6px 12px 8px' }}>Systems</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SystemCard label="SAP Business One" tag="SOURCE · v10" color="var(--teal-dim)" detail="Basic auth · 142ms" />
-        <SystemCard label="SalesPort DMS" tag="TARGET · v1.2" color="var(--orange)" detail="dms.salesport.in" />
-      </div>
-
       <div style={{ flex: 1 }} />
 
-      <div style={{ padding: 10, borderRadius: 8, marginBottom: 8, background: 'var(--bg-2)', border: '1px dashed var(--line)' }}>
-        <div style={{ fontSize: 9.5, color: 'var(--ink-3)', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 4 }}>BASE URL</div>
-        <div className="mono" style={{ fontSize: 10.5, color: 'var(--orange)', wordBreak: 'break-all' }}>http://dms.salesport.in</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, fontSize: 10, color: 'var(--ink-2)' }}>
-          <Icons.lock style={{ width: 11, height: 11 }} />
-          <span>Basic auth · {AUTH_USER}</span>
-        </div>
-      </div>
-
-      <UserFooter user={user} onLogout={onLogout} />
+      <UserFooter user={user} onLogout={onLogout} env={env} />
     </aside>
   );
 }
 
-function UserFooter({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+function UserFooter({ user, onLogout, env }: { user: AuthUser; onLogout: () => void; env: string }) {
   const [open, setOpen] = React.useState(false);
   const initials = user?.initial || 'SF';
   const displayName = user?.name || 'Sujal Foods';
-  const displayRole = user?.role || 'Tenant · prod';
+  const displayRole = user?.role || `Tenant · ${env}`;
 
   return (
     <div style={{ position: 'relative' }}>
       {open && (
         <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, right: 0, background: 'var(--bg-2)', border: '1px solid var(--line-strong)', borderRadius: 8, padding: 4, boxShadow: '0 12px 32px rgba(0,0,0,0.4)', zIndex: 10 }}>
-          <MenuItem label="Profile"    icon={<Icons.conn />}    onClick={() => setOpen(false)} />
-          <MenuItem label="Settings"   icon={<Icons.modules />} onClick={() => setOpen(false)} />
-          <MenuItem label="API tokens" icon={<Icons.lock />}    onClick={() => setOpen(false)} />
-          <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
           <MenuItem label="Sign out"   icon={<LogoutIcon />}    danger onClick={() => { setOpen(false); onLogout(); }} />
         </div>
       )}
@@ -142,18 +127,3 @@ function LogoutIcon() {
   return (<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M9 3H4a1 1 0 00-1 1v8a1 1 0 001 1h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><path d="M11 5l3 3-3 3M14 8H7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>);
 }
 
-function SystemCard({ label, tag, color, detail }: { label: string; tag: string; color: string; detail: string }) {
-  return (
-    <div style={{ padding: 10, borderRadius: 8, background: 'var(--bg-2)', border: '1px solid var(--line)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <div style={{ width: 4, height: 16, borderRadius: 2, background: color }} />
-        <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--ink-0)' }}>{label}</div>
-        <PulseDot />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 12 }}>
-        <span style={{ fontSize: 9.5, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em' }}>{tag}</span>
-        <span style={{ fontSize: 10, color: 'var(--ink-2)', fontFamily: 'var(--font-jetbrains-mono), monospace' }}>{detail}</span>
-      </div>
-    </div>
-  );
-}

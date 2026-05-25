@@ -1,25 +1,34 @@
 'use client';
 import React from 'react';
 import { Icons, Chip, Method, Stat, Sparkline, SubHd, ViewHeader } from '@/components';
-import { MODULES, CONNECTORS, AUTH_USER, AUTH_HEADER } from '@/data';
+import { MODULES, AUTH_USER, AUTH_HEADER } from '@/data';
+import { useApi } from '@/lib/useApi';
+import { console_, API_BASE } from '@/lib/api';
+
+type Connector = { name: string; side: 'sap' | 'dms'; host: string; protocol: string; auth: string; status: 'healthy' | 'degraded' | 'down'; latency: number; error?: string | null };
 
 export default function Connections() {
+  const { data, loading, error, refetch } = useApi(() => console_.connections(), [], { pollMs: 8000 });
+  const { data: modStats } = useApi(() => console_.modulesStats(), [], { pollMs: 8000 });
+  const connectors: Connector[] = data?.connections || [];
+  const statsByMod = Object.fromEntries((modStats?.rows || []).map(r => [r.module_id, r]));
+
   return (
     <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
       <ViewHeader
         title="Connections"
-        sub={<>Endpoint inventory and live health · base <span className="mono" style={{ color: 'var(--orange)' }}>http://dms.salesport.in</span> · HTTP Basic auth (TLS 1.2+)</>}
+        sub={<>Endpoint inventory · backend <span className="mono" style={{ color: 'var(--orange)' }}>{API_BASE}</span> · HTTP Basic auth (TLS 1.2+)</>}
         actions={
           <>
-            <button className="btn"><Icons.refresh /> Recheck all</button>
-            <button className="btn primary">+ Add connector</button>
+            {error ? <Chip kind="err" dot>backend offline</Chip> : <Chip kind="ok" dot>{loading ? 'loading' : 'live'}</Chip>}
+            <button className="btn" onClick={refetch}><Icons.refresh /> Recheck</button>
           </>
         }
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-        <SidePanel side="sap" connectors={CONNECTORS.filter(c => c.side === 'sap')} />
-        <SidePanel side="dms" connectors={CONNECTORS.filter(c => c.side === 'dms')} />
+        <SidePanel side="sap" connectors={connectors.filter(c => c.side === 'sap')} />
+        <SidePanel side="dms" connectors={connectors.filter(c => c.side === 'dms')} />
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -65,17 +74,24 @@ export default function Connections() {
             <th>Module</th><th>POST</th><th>PUT</th><th>p50 latency</th><th>Calls · 1h</th><th>Error rate</th><th>Last sync</th>
           </tr></thead>
           <tbody>
-            {MODULES.map(m => (
-              <tr key={m.id}>
-                <td><span className="mono" style={{ fontSize: 11, color: 'var(--orange)', marginRight: 6 }}>{m.code}</span> <span style={{ fontSize: 12.5, fontWeight: 600 }}>{m.label}</span></td>
-                <td>{m.methods.includes('POST') ? <Method m="POST" /> : <span style={{ color: 'var(--ink-3)' }}>—</span>}</td>
-                <td>{m.methods.includes('PUT') ? <Method m="PUT" /> : <span style={{ color: 'var(--ink-3)' }}>—</span>}</td>
-                <td className="mono" style={{ fontSize: 11.5 }}>{Math.round(80 + m.rps * 8)}ms</td>
-                <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{Math.round(m.rps * 3600)}</td>
-                <td className="mono" style={{ fontSize: 11.5, color: m.errRate > 1 ? 'var(--amber)' : 'var(--teal)' }}>{m.errRate.toFixed(2)}%</td>
-                <td><Chip dot kind="ok">live</Chip></td>
-              </tr>
-            ))}
+            {MODULES.map(m => {
+              const s = statsByMod[m.id];
+              const calls = s ? Number(s.calls_24h) : 0;
+              const errs = s ? Number(s.errors_24h) : 0;
+              const errRate = calls > 0 ? (errs / calls) * 100 : 0;
+              const avgMs = s?.avg_ms ? Math.round(Number(s.avg_ms)) : null;
+              return (
+                <tr key={m.id}>
+                  <td><span className="mono" style={{ fontSize: 11, color: 'var(--orange)', marginRight: 6 }}>{m.code}</span> <span style={{ fontSize: 12.5, fontWeight: 600 }}>{m.label}</span></td>
+                  <td>{m.methods.includes('POST') ? <Method m="POST" /> : <span style={{ color: 'var(--ink-3)' }}>—</span>}</td>
+                  <td>{m.methods.includes('PUT') ? <Method m="PUT" /> : <span style={{ color: 'var(--ink-3)' }}>—</span>}</td>
+                  <td className="mono" style={{ fontSize: 11.5 }}>{avgMs == null ? '—' : `${avgMs}ms`}</td>
+                  <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>{calls}</td>
+                  <td className="mono" style={{ fontSize: 11.5, color: errRate > 1 ? 'var(--amber)' : 'var(--teal)' }}>{errRate.toFixed(2)}%</td>
+                  <td>{s ? <Chip dot kind="ok">live</Chip> : <Chip dot kind="info">idle</Chip>}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -83,7 +99,7 @@ export default function Connections() {
   );
 }
 
-function SidePanel({ side, connectors }: { side: string; connectors: typeof CONNECTORS }) {
+function SidePanel({ side, connectors }: { side: string; connectors: Connector[] }) {
   const isSap = side === 'sap';
   const accent = isSap ? 'var(--teal)' : 'var(--orange)';
   return (
@@ -107,13 +123,12 @@ function SidePanel({ side, connectors }: { side: string; connectors: typeof CONN
   );
 }
 
-function ConnectorRow({ c, accent }: { c: typeof CONNECTORS[0]; accent: string }) {
+function ConnectorRow({ c, accent }: { c: Connector; accent: string }) {
   const sk = c.status === 'healthy' ? 'ok' : c.status === 'degraded' ? 'warn' : 'err';
   return (
     <div style={{ padding: 14, background: 'var(--bg-2)', borderRadius: 10, border: '1px solid var(--line)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-0)', flex: 1 }}>{c.name}</span>
-        <span className="chip muted" style={{ fontSize: 10 }}>{c.env}</span>
         <Chip kind={sk as any} dot>{c.status}</Chip>
       </div>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 6 }}>
@@ -124,8 +139,7 @@ function ConnectorRow({ c, accent }: { c: typeof CONNECTORS[0]; accent: string }
       <div style={{ display: 'flex', gap: 18 }}>
         <MiniStat label="auth" value={c.auth} />
         <MiniStat label="latency" value={`${c.latency}ms`} accent={c.latency > 500 ? 'var(--amber)' : 'var(--teal)'} />
-        <MiniStat label="rate" value={`${c.rps}/s`} />
-        <MiniStat label="last" value={c.lastSync} />
+        {c.error && <MiniStat label="error" value={c.error.slice(0, 30)} accent="var(--red)" />}
         <div style={{ flex: 1 }} />
         <Sparkline seed={c.name.length} stroke={c.status === 'degraded' ? 'var(--amber)' : accent} w={80} h={22} />
       </div>

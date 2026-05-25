@@ -1,4 +1,4 @@
-// SalesPort × SAP B1 — real spec data from API documentation v1.2
+// SalesPort × SAP — real spec data from API documentation v1.2
 
 export const BASE_URL = 'http://dms.salesport.in';
 export const AUTH_USER = 'SujalFoods';
@@ -235,39 +235,47 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'lines[].portion_of_returns', sapType: 'decimal', sapDesc: 'Return %', dms: 'lines[].return_pct', dmsType: 'decimal', dmsDesc: 'Return %', xform: 'toDecimal', status: 'mapped', confidence: 100, required: true },
   ],
   'greater-circles': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Zone name (unique CI)', dms: 'greater_circle', dmsType: 'string PK', dmsDesc: 'Zone name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Zone name (unique CI)', dms: 'zones.name', dmsType: 'string', dmsDesc: 'Zone name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional — auto-derived from name if omitted)', dms: 'zones.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'circles': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Town name (unique CI)', dms: 'circle', dmsType: 'string PK', dmsDesc: 'Town name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
-    { sap: 'greater_circle_name', sapType: 'string(50)', sapDesc: 'Parent zone (must exist)', dms: 'greater_circle_id', dmsType: 'FK', dmsDesc: 'FK → greater_circles', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Town name (unique CI)', dms: 'towns.name', dmsType: 'string', dmsDesc: 'Town name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'towns.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
+    { sap: 'greater_circle_name', sapType: 'string(50)', sapDesc: 'Parent zone (must exist)', dms: 'towns.zone_id', dmsType: 'FK', dmsDesc: 'FK → zones', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'container': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Container (unique CI)', dms: 'container', dmsType: 'string PK', dmsDesc: 'Packaging name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Container (unique CI)', dms: 'packaging_types.name', dmsType: 'string', dmsDesc: 'Packaging name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'packaging_types.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
+    { sap: 'level', sapType: 'string', sapDesc: 'PRIMARY / SECONDARY / TERTIARY (defaults PRIMARY)', dms: 'packaging_types.level', dmsType: 'enum', dmsDesc: 'Packaging level', xform: 'normalize · validate(allowed set)', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'matrix': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Matrix grouping (unique CI)', dms: 'sujal_matrix_name', dmsType: 'string PK', dmsDesc: 'Grouping', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Matrix grouping (unique CI)', dms: 'product_domains.name', dmsType: 'string', dmsDesc: 'Grouping', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'product_domains.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'product-class': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Category (unique CI)', dms: 'product_class', dmsType: 'string PK', dmsDesc: 'Class name', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
-    { sap: 'unit', sapType: 'string(50)', sapDesc: 'UoM (Kg/Ltr/Pcs)', dms: 'unit', dmsType: 'enum', dmsDesc: 'UoM', xform: 'enumMap', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Category (unique CI)', dms: 'production_categories.name', dmsType: 'string', dmsDesc: 'Class name', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'production_categories.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
+    { sap: 'unit', sapType: 'string(50)', sapDesc: 'UoM (Kg/Ltr/Pcs)', dms: 'description', dmsType: 'string', dmsDesc: 'Stored in description (no native UoM col)', xform: 'prefix "UOM: "', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'product-name': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Product (unique CI)', dms: 'product_name', dmsType: 'string PK', dmsDesc: 'Product', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
-    { sap: 'product_class_name', sapType: 'string', sapDesc: 'Class (must exist)', dms: 'product_class_id', dmsType: 'FK', dmsDesc: 'FK → product_class', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Product (unique CI)', dms: 'master_lookups.label', dmsType: 'string', dmsDesc: 'Product name (category=PRODUCT_NAME)', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'product_class_name', sapType: 'string', sapDesc: 'Class (must exist)', dms: 'master_lookups.value', dmsType: 'FK', dmsDesc: 'production_categories.id', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'payment-terms': [
-    { sap: 'payment_term_name', sapType: 'string(50)', sapDesc: 'Terms name (unique)', dms: 'payment_term_name', dmsType: 'string PK', dmsDesc: 'Terms', xform: 'direct', status: 'mapped', confidence: 100, required: true },
-    { sap: 'term_days', sapType: 'string', sapDesc: 'Credit days', dms: 'term_days', dmsType: 'int?', dmsDesc: 'Days', xform: 'parseInt', status: 'mapped', confidence: 100, required: false },
+    { sap: 'payment_term_name', sapType: 'string(50)', sapDesc: 'Terms name (unique)', dms: 'payment_preferences.name', dmsType: 'string', dmsDesc: 'Terms', xform: 'direct', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'payment_preferences.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
+    { sap: 'term_days', sapType: 'string', sapDesc: 'Credit days · pending column (see backend/PENDING.md Q3)', dms: 'term_days', dmsType: 'int?', dmsDesc: 'Days (deferred)', xform: 'parseInt · ignored until flag enabled', status: 'review', confidence: 60, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'price-list-group': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Group name (unique)', dms: 'rate_group_name', dmsType: 'string PK', dmsDesc: 'Group', xform: 'direct', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Group name (unique)', dms: 'price_groups.name', dmsType: 'string', dmsDesc: 'Group', xform: 'direct', status: 'mapped', confidence: 100, required: true },
+    { sap: 'code', sapType: 'string(50)', sapDesc: 'Stable identifier for PUT lookups (optional)', dms: 'price_groups.code', dmsType: 'string UQ', dmsDesc: 'Unique code', xform: 'UPPER · TRIM', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'price-list': [
@@ -495,8 +503,8 @@ export const DB_TABLES = [
 ];
 
 export const CONNECTORS = [
-  { name: 'SAP B1 · PROD', env: 'production', side: 'sap', protocol: 'REST/JSON', host: 'sap-b1.sujalfoods.internal', auth: 'HTTP Basic', status: 'healthy', latency: 142, rps: 18, lastSync: '8s ago' },
-  { name: 'SAP B1 · STAGE', env: 'staging', side: 'sap', protocol: 'REST/JSON', host: 'sap-b1-stg.sujalfoods.internal', auth: 'HTTP Basic', status: 'healthy', latency: 198, rps: 1, lastSync: '46s ago' },
+  { name: 'SAP · PROD', env: 'production', side: 'sap', protocol: 'REST/JSON', host: 'sap-b1.sujalfoods.internal', auth: 'HTTP Basic', status: 'healthy', latency: 142, rps: 18, lastSync: '8s ago' },
+  { name: 'SAP · STAGE', env: 'staging', side: 'sap', protocol: 'REST/JSON', host: 'sap-b1-stg.sujalfoods.internal', auth: 'HTTP Basic', status: 'healthy', latency: 198, rps: 1, lastSync: '46s ago' },
   { name: 'SalesPort DMS · PROD', env: 'production', side: 'dms', protocol: 'REST/JSON', host: 'dms.salesport.in', auth: 'HTTP Basic', status: 'healthy', latency: 38, rps: 21, lastSync: 'live' },
   { name: 'SalesPort DMS · STAGE', env: 'staging', side: 'dms', protocol: 'REST/JSON', host: 'dms-stg.salesport.in', auth: 'HTTP Basic', status: 'degraded', latency: 612, rps: 0.4, lastSync: '2m ago' },
 ];
@@ -721,35 +729,70 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
 }`,
   },
   'greater-circles': {
-    request: `{ "name": "Zone A", "status": "Y" }`,
-    response: `{ "id": 12, "greater_circle": "Zone A", "is_active": true }`,
+    request: `{
+  "name": "Zone A",
+  "code": "ZONE_A",
+  "status": "Y"
+}`,
+    response: `{ "id": 12, "name": "Zone A", "code": "ZONE_A", "is_active": true }`,
   },
   'circles': {
-    request: `{ "name": "Town X", "greater_circle_name": "Zone A", "status": "Y" }`,
-    response: `{ "id": 47, "circle": "Town X", "greater_circle_id": 12, "is_active": true }`,
+    request: `{
+  "name": "Town X",
+  "code": "TOWN_X",
+  "greater_circle_name": "Zone A",
+  "status": "Y"
+}`,
+    response: `{ "id": 47, "name": "Town X", "code": "TOWN_X", "zone_id": 12, "is_active": true }`,
   },
   'container': {
-    request: `{ "name": "CRATE", "status": "Y" }`,
-    response: `{ "id": 1, "container": "CRATE", "is_active": true }`,
+    request: `{
+  "name": "CRATE",
+  "code": "CRATE",
+  "level": "PRIMARY",
+  "status": "Y"
+}`,
+    response: `{ "id": 1, "name": "CRATE", "code": "CRATE", "level": "PRIMARY", "is_active": true }`,
   },
   'matrix': {
-    request: `{ "name": "Matrix Group 1", "status": "Y" }`,
-    response: `{ "id": 1, "sujal_matrix_name": "Matrix Group 1", "is_active": true }`,
+    request: `{
+  "name": "Matrix Group 1",
+  "code": "MATRIX_1",
+  "status": "Y"
+}`,
+    response: `{ "id": 1, "name": "Matrix Group 1", "code": "MATRIX_1", "is_active": true }`,
   },
   'product-class': {
-    request: `{ "name": "Dairy Products", "unit": "Ltr", "status": "Y" }`,
-    response: `{ "id": 4, "product_class": "Dairy Products", "unit": "Ltr", "is_active": true }`,
+    request: `{
+  "name": "Dairy Products",
+  "code": "DAIRY",
+  "unit": "Ltr",
+  "status": "Y"
+}`,
+    response: `{ "id": 4, "name": "Dairy Products", "code": "DAIRY", "description": "UOM: Ltr", "is_active": true }`,
   },
   'product-name': {
-    request: `{ "name": "Fresh Milk", "product_class_name": "Dairy Products", "status": "Y" }`,
-    response: `{ "id": 142, "product_name": "Fresh Milk", "product_class_id": 4, "is_active": true }`,
+    request: `{
+  "name": "Fresh Milk",
+  "product_class_name": "Dairy Products",
+  "status": "Y"
+}`,
+    response: `{ "id": 142, "product_name": "Fresh Milk", "product_class_id": "4", "is_active": true }`,
   },
   'payment-terms': {
-    request: `{ "payment_term_name": "Net 30", "status": "Y" }`,
-    response: `{ "id": 3, "payment_term_name": "Net 30", "term_days": 30, "is_active": true }`,
+    request: `{
+  "payment_term_name": "Net 30",
+  "code": "NET_30",
+  "status": "Y"
+}`,
+    response: `{ "id": 3, "name": "Net 30", "code": "NET_30", "is_active": true }`,
   },
   'price-list-group': {
-    request: `{ "name": "Standard", "status": "Y" }`,
-    response: `{ "id": 1, "rate_group_name": "Standard", "is_active": true }`,
+    request: `{
+  "name": "Standard",
+  "code": "STANDARD",
+  "status": "Y"
+}`,
+    response: `{ "id": 1, "name": "Standard", "code": "STANDARD", "is_active": true }`,
   },
 };

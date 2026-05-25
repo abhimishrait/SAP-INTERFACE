@@ -16,7 +16,7 @@ import ApiTester from '@/views/ApiTester';
 
 const TWEAKS_DEFAULTS = {
   view: 'overview',
-  envFilter: 'production',
+  envFilter: 'staging',
   selectedTxId: 'txn_1763a-32a13-25c29',
   selectedModule: 'greater-circles',
   rightPaneTab: 'db',
@@ -50,11 +50,15 @@ export default function App() {
     return <Login onLogin={onLogin} />;
   }
 
+  const env = tw.envFilter || 'staging';
+  const shortEnv = env === 'production' ? 'prod' : env === 'staging' ? 'staging' : 'dev';
+  const setEnv = (e: string) => setTweak('envFilter', e);
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
-      <Sidebar view={tw.view} setView={setView} user={user} onLogout={onLogout} />
+      <Sidebar view={tw.view} setView={setView} user={user} onLogout={onLogout} env={shortEnv} setEnv={setEnv} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--bg-0)' }}>
-        <TopBar theme={tw.theme || 'dark'} setTheme={setTheme} />
+        <TopBar theme={tw.theme || 'dark'} setTheme={setTheme} env={shortEnv} />
         <div style={{ flex: 1, minHeight: 0 }}>
           {tw.view === 'overview'  && <Overview flowAnim={tw.showFlowAnimation} density={tw.density} />}
           {tw.view === 'modules'   && <Modules setSelectedModule={(id) => setTweak('selectedModule', id)} setView={setView} />}

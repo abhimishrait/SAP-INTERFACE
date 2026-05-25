@@ -1,0 +1,24 @@
+{
+  "name": "salesport-sap-backend",
+  "version": "0.1.0",
+  "description": "SAP ⇄ SalesPort DMS integration backend (SAP-facing endpoints + console APIs).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate": "node scripts/run-migration.js",
+    "introspect": "node scripts/introspect.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "morgan": "^1.10.1",
+    "mysql2": "^3.22.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

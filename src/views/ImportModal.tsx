@@ -217,7 +217,7 @@ export default function ImportModal({ open, onClose, onImported }: {
           </div>
           <div style={{ flex: 1 }}>
             <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink-0)' }}>Import API collection</h2>
-            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 2 }}>Paste a Postman v2.1, OpenAPI 3.x, or Swagger 2.0 file. Requests show up alongside the SalesPort × SAP B1 spec.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginTop: 2 }}>Paste a Postman v2.1, OpenAPI 3.x, or Swagger 2.0 file. Requests show up alongside the SalesPort × SAP spec.</div>
           </div>
           <button className="btn ghost" onClick={onClose}><Icons.x /></button>
         </div>

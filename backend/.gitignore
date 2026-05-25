@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.log
+schema-dump.json
+schema-relevant.txt

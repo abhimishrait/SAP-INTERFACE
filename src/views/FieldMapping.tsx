@@ -2,6 +2,7 @@
 import React from 'react';
 import { Icons, Chip, Method, JsonBlock, ViewHeader } from '@/components';
 import { MODULES, MODULE_BY_ID, MAPPINGS_BY_MODULE, SAMPLE_PAYLOADS, type FieldMapping as FieldMappingType } from '@/data';
+import { sapCall } from '@/lib/api';
 
 export default function FieldMapping({ selectedModule, setSelectedModule, density }: {
   selectedModule: string;
@@ -15,6 +16,44 @@ export default function FieldMapping({ selectedModule, setSelectedModule, densit
   const [filter, setFilter] = React.useState('all');
 
   React.useEffect(() => { setSelectedIdx(0); setFilter('all'); }, [moduleId]);
+
+  const [dryRunResult, setDryRunResult] = React.useState<{ status: number; body: any; ms: number } | null>(null);
+  const [dryRunBusy, setDryRunBusy] = React.useState(false);
+
+  const onExportSchema = () => {
+    const payload = {
+      module: { id: mod.id, code: mod.code, label: mod.label, description: mod.desc, methods: mod.methods, path: mod.path, rules: mod.rules },
+      mappings: allMappings,
+      sample: SAMPLE_PAYLOADS[mod.id] || null,
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `salesport-mapping-${mod.id}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const onDryRun = async () => {
+    const sample = SAMPLE_PAYLOADS[mod.id];
+    if (!sample) { alert('No sample payload for this module yet.'); return; }
+    setDryRunBusy(true);
+    setDryRunResult(null);
+    try {
+      const body = JSON.parse(sample.request);
+      // Use POST if supported, else PUT (with a dummy id for PUT-only endpoints).
+      const method = mod.methods.includes('POST') ? 'POST' : 'PUT';
+      const path = method === 'PUT' && !mod.methods.includes('POST') ? mod.path : mod.path;
+      const r = await sapCall(method as 'POST' | 'PUT', path, body);
+      setDryRunResult({ status: r.status, body: r.body, ms: r.ms });
+    } catch (e: any) {
+      setDryRunResult({ status: 0, body: { error: e?.message || 'failed' }, ms: 0 });
+    } finally {
+      setDryRunBusy(false);
+    }
+  };
 
   const filtered = allMappings.filter(f =>
     filter === 'all' ? true : filter === 'required' ? f.required : f.status === filter
@@ -32,14 +71,35 @@ export default function FieldMapping({ selectedModule, setSelectedModule, densit
     <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
       <ViewHeader
         title="Field Mapping"
-        sub={<>SAP B1 source → SalesPort DMS target · every mapping invocation is recorded in <span className="mono">field_map_audit</span></>}
+        sub={<>SAP source → SalesPort DMS target · every mapping invocation is recorded in <span className="mono">field_map_audit</span></>}
         actions={
           <>
-            <button className="btn"><Icons.download /> Export schema</button>
-            <button className="btn primary"><Icons.play /> Dry-run with sample</button>
+            <button className="btn" onClick={onExportSchema}><Icons.download /> Export schema</button>
+            <button className="btn primary" onClick={onDryRun} disabled={dryRunBusy}>
+              {dryRunBusy ? <><span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', border: '2px solid currentColor', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} /> Sending</> : <><Icons.play /> Dry-run with sample</>}
+            </button>
           </>
         }
       />
+
+      {dryRunResult && (
+        <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 12,
+          padding: '10px 14px', marginBottom: 12,
+          background: dryRunResult.status < 400 ? 'var(--teal-bg)' : dryRunResult.status >= 500 ? 'var(--red-bg)' : 'var(--orange-bg)',
+          border: `1px solid ${dryRunResult.status < 400 ? 'var(--teal)' : dryRunResult.status >= 500 ? 'var(--red)' : 'var(--orange)'}`,
+          borderRadius: 8, fontSize: 12,
+        }}>
+          <Chip kind={dryRunResult.status < 400 ? 'ok' : dryRunResult.status >= 500 ? 'err' : 'warn'} dot>
+            HTTP {dryRunResult.status || 'ERR'}
+          </Chip>
+          <span style={{ color: 'var(--ink-1)' }}><strong>Dry-run sent</strong> · {dryRunResult.ms}ms</span>
+          <pre className="mono" style={{ margin: 0, fontSize: 11, color: 'var(--ink-2)', flex: 1, overflow: 'auto', whiteSpace: 'pre-wrap', maxHeight: 80 }}>
+            {typeof dryRunResult.body === 'string' ? dryRunResult.body : JSON.stringify(dryRunResult.body)}
+          </pre>
+          <button className="btn ghost" onClick={() => setDryRunResult(null)}><Icons.x /></button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, borderBottom: '1px solid var(--line)' }}>
         {MODULES.map(m => (
@@ -268,7 +328,7 @@ function FieldInspector({ field, moduleId }: { field: FieldMappingType; moduleId
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <div style={{ width: 4, height: 12, background: 'var(--teal-dim)' }} />
-            <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontWeight: 700, letterSpacing: '0.08em' }}>SAP B1 SOURCE</span>
+            <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontWeight: 700, letterSpacing: '0.08em' }}>SAP SOURCE</span>
             {field.required && <span className="chip orange" style={{ marginLeft: 'auto' }}>required</span>}
           </div>
           <div className="mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: 'break-all' }}>{field.sap}</div>

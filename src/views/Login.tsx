@@ -34,7 +34,7 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
 
   const recentUsers = [
     { name: 'R. Mehra',  role: 'Integration Lead', email: 'admin@sujalfoods.in',   last: '12 min ago', initial: 'RM' },
-    { name: 'K. Iyer',   role: 'SAP B1 Admin',     email: 'kiyer@sujalfoods.in',    last: '2h ago',     initial: 'KI' },
+    { name: 'K. Iyer',   role: 'SAP Admin',     email: 'kiyer@sujalfoods.in',    last: '2h ago',     initial: 'KI' },
     { name: 'S. Pillai', role: 'DevOps',           email: 'spillai@sortstring.com', last: 'yesterday',  initial: 'SP' },
   ];
 
@@ -75,8 +75,7 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
             </div>
             <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--ink-0)' }}>Welcome back</h1>
             <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 6, lineHeight: 1.5 }}>
-              Sign in to the SAP B1 ↔ SalesPort DMS Integration Console.
-              <br />Tenant: <span className="mono" style={{ color: 'var(--orange)' }}>sujal-foods-prod</span>
+              Sign in to the SAP ↔ SalesPort DMS Integration Console.
             </div>
           </div>
 
@@ -85,9 +84,7 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@sujalfoods.in" autoComplete="email" style={inputStyle()} />
             </LoginField>
-            <LoginField label="Password" right={
-              <a href="#" onClick={e => e.preventDefault()} style={{ fontSize: 11, color: 'var(--orange)', fontWeight: 600, textDecoration: 'none' }}>Forgot?</a>
-            }>
+            <LoginField label="Password">
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" autoComplete="current-password" style={inputStyle()} />
             </LoginField>
@@ -111,46 +108,6 @@ export default function Login({ onLogin }: { onLogin: (u: AuthUser) => void }) {
             )}
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--ink-3)', fontSize: 11, margin: '4px 0' }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-            <span>OR CONTINUE WITH</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <button type="button" className="btn" style={{ height: 36, justifyContent: 'center', gap: 8 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: 'linear-gradient(135deg,#1976d2,#0d47a1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 9 }}>S</span>
-              SAML SSO
-            </button>
-            <button type="button" className="btn" style={{ height: 36, justifyContent: 'center', gap: 8 }}>
-              <Icons.lock /> mTLS Cert
-            </button>
-          </div>
-
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Recent on this device</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {recentUsers.map(u => (
-                <button key={u.email} type="button" onClick={() => quickPick(u)} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '7px 10px', borderRadius: 6,
-                  background: 'transparent', border: '1px solid var(--line)',
-                  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                }}>
-                  <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg, var(--violet), var(--blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-orange)', fontWeight: 700, fontSize: 10 }}>{u.initial}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-0)' }}>{u.name}</div>
-                    <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{u.email}</div>
-                  </div>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>{u.last}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ fontSize: 10.5, color: 'var(--ink-3)', textAlign: 'center', marginTop: 6, lineHeight: 1.5 }}>
-            By signing in you agree to the integration use policy.<br />
-            Need access? Email <span className="mono" style={{ color: 'var(--orange)' }}>info@sortstring.com</span>
-          </div>
         </form>
       </div>
     </div>
@@ -175,63 +132,54 @@ function LoginField({ label, right, children }: { label: string; right?: React.R
 
 function LoginBrandPane() {
   return (
-    <div style={{ position: 'relative', overflow: 'hidden', background: 'linear-gradient(155deg, var(--bg-1) 0%, var(--bg-0) 60%, var(--bg-2) 100%)', display: 'flex', flexDirection: 'column', padding: 40 }}>
-      <svg width="100%" height="100%" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0, opacity: 0.32 }}>
+    <div style={{
+      position: 'relative', overflow: 'hidden',
+      background: 'linear-gradient(155deg, var(--bg-1) 0%, var(--bg-0) 60%, var(--bg-2) 100%)',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      padding: 40,
+    }}>
+      {/* Subtle background grid + decorative connector graphic, faded so the title is the hero. */}
+      <svg width="100%" height="100%" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet" style={{ position: 'absolute', inset: 0, opacity: 0.18 }}>
         <defs>
-          <linearGradient id="lg1" x1="0" x2="1"><stop offset="0" stopColor="var(--teal)" stopOpacity="0.5" /><stop offset="1" stopColor="var(--orange)" stopOpacity="0.5" /></linearGradient>
+          <linearGradient id="lg1" x1="0" x2="1">
+            <stop offset="0" stopColor="var(--teal)" stopOpacity="0.5" />
+            <stop offset="1" stopColor="var(--orange)" stopOpacity="0.5" />
+          </linearGradient>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M40 0H0V40" stroke="var(--line)" strokeWidth="1" fill="none" />
           </pattern>
         </defs>
-        <rect width="600" height="800" fill="url(#grid)" />
-        {[180, 280, 380, 480].map((y, i) => (
+        <rect width="600" height="600" fill="url(#grid)" />
+        {[200, 300, 400].map((y, i) => (
           <g key={'l' + i}>
-            <circle cx="80" cy={y} r="22" fill="var(--bg-2)" stroke="var(--teal)" strokeWidth="1.5" />
-            <path d={`M 102 ${y} C 180 ${y}, 220 400, 300 400`} stroke="url(#lg1)" strokeWidth="1.5" fill="none" strokeDasharray="6 6">
+            <circle cx="120" cy={y} r="14" fill="var(--bg-2)" stroke="var(--teal)" strokeWidth="1.5" />
+            <path d={`M 134 ${y} C 200 ${y}, 230 300, 280 300`} stroke="url(#lg1)" strokeWidth="1.5" fill="none" strokeDasharray="6 6">
               <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="1.6s" repeatCount="indefinite" />
             </path>
           </g>
         ))}
-        <rect x="280" y="360" width="120" height="80" rx="10" fill="var(--bg-2)" stroke="var(--orange)" strokeWidth="1.5" />
-        <text x="340" y="400" fontFamily="monospace" fontSize="11" fill="var(--orange)" textAnchor="middle" fontWeight="700">MAPPER</text>
-        <text x="340" y="416" fontFamily="monospace" fontSize="9" fill="var(--ink-2)" textAnchor="middle">v1.2</text>
-        {[180, 280, 380, 480].map((y, i) => (
+        {[200, 300, 400].map((y, i) => (
           <g key={'r' + i}>
-            <path d={`M 400 400 C 480 400, 520 ${y}, 520 ${y}`} stroke="url(#lg1)" strokeWidth="1.5" fill="none" strokeDasharray="6 6">
+            <path d={`M 320 300 C 370 300, 400 ${y}, 460 ${y}`} stroke="url(#lg1)" strokeWidth="1.5" fill="none" strokeDasharray="6 6">
               <animate attributeName="stroke-dashoffset" from="-24" to="0" dur="1.6s" repeatCount="indefinite" />
             </path>
-            <circle cx="540" cy={y} r="22" fill="var(--bg-2)" stroke="var(--orange)" strokeWidth="1.5" />
+            <circle cx="476" cy={y} r="14" fill="var(--bg-2)" stroke="var(--orange)" strokeWidth="1.5" />
           </g>
         ))}
       </svg>
 
-      <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--bg-2)', border: '1px solid var(--line-strong)', position: 'relative' }}>
-          <svg width="36" height="36" viewBox="0 0 36 36" style={{ position: 'absolute', inset: 0 }}>
+      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18 }}>
+        <div style={{ width: 64, height: 64, borderRadius: 14, background: 'var(--bg-2)', border: '1px solid var(--line-strong)', position: 'relative', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}>
+          <svg width="64" height="64" viewBox="0 0 36 36" style={{ position: 'absolute', inset: 0 }}>
             <rect x="6" y="7" width="11" height="11" rx="2" fill="var(--teal)" opacity="0.85" />
             <rect x="19" y="18" width="11" height="11" rx="2" fill="var(--orange)" opacity="0.9" />
             <path d="M 13 14 L 23 22" stroke="var(--ink-0)" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
         </div>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink-0)', letterSpacing: '-0.01em' }}>SalesPort × SAP B1</div>
-          <div style={{ fontSize: 10.5, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Integration Console</div>
-        </div>
-      </div>
-
-      <div style={{ flex: 1 }} />
-
-      <div style={{ position: 'relative', zIndex: 2 }}>
-        <div style={{ fontSize: 13, color: 'var(--ink-2)', maxWidth: 360, lineHeight: 1.5, marginBottom: 16 }}>
-          One pane of glass for every API call between SAP Business One and SalesPort DMS — with field mapping, validation, replay, and full request/response audit.
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {[['Modules', '16'], ['Endpoints', '30'], ['Field maps', '148'], ['Spec', 'v1.2']].map(([label, value]) => (
-            <div key={label} style={{ padding: '10px 14px', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 8, minWidth: 80 }}>
-              <div style={{ fontSize: 9.5, color: 'var(--ink-3)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{label}</div>
-              <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink-0)', marginTop: 4 }}>{value}</div>
-            </div>
-          ))}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 38, fontWeight: 800, color: 'var(--ink-0)', letterSpacing: '-0.025em', lineHeight: 1.05 }}>Integrator</div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-3)', fontWeight: 600, letterSpacing: '0.18em', textTransform: 'uppercase', marginTop: 8 }}>SAP ⇄ SalesPort DMS</div>
         </div>
       </div>
     </div>
