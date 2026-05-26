@@ -186,6 +186,7 @@ router.post('/', async (req, res, next) => {
       agreement_type: agreementType,
       status: statusCode,
       lines_count: lines.length,
+      message: 'Blanket Agreement created successfully',
     });
   } catch (e) { next(e); }
 });
@@ -250,7 +251,7 @@ async function updateHandler(req, res, next) {
       }
     });
 
-    res.status(200).json({ id: agreementId, lines_replaced: linesReplaced });
+    res.status(200).json({ id: agreementId, lines_replaced: linesReplaced, message: 'Record updated successfully' });
   } catch (e) { next(e); }
 }
 

@@ -143,6 +143,7 @@ router.post('/', async (req, res, next) => {
       do_number: req.body.do_number,
       doc_entry: req.body.doc_entry,
       doc_number_so: req.body.doc_number_so,
+      message: 'Delivery Order created successfully',
     });
   } catch (e) { next(e); }
 });
@@ -192,7 +193,7 @@ router.put('/:id/', async (req, res, next) => {
         }
       }
     });
-    res.status(200).json({ id });
+    res.status(200).json({ id, message: 'Record updated successfully' });
   } catch (e) { next(e); }
 });
 

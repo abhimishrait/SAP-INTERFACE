@@ -48,7 +48,7 @@ router.post('/', async (req, res, next) => {
        VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?, ?, ?, ?, 0, ?, ?)`,
       [isActive ? 1 : 0, CATEGORY, name, classRef || '', cfg.systemUserId, cfg.systemUserId]
     );
-    res.status(201).json({ id: r.insertId, product_name: name, product_class_id: classRef, is_active: isActive });
+    res.status(201).json({ id: r.insertId, name, code: name, product_name: name, product_class_id: classRef, is_active: isActive, message: 'Created' });
   } catch (e) { next(e); }
 });
 
@@ -82,11 +82,11 @@ router.put('/:id/', async (req, res, next) => {
       if (isActive === null) throw new ValidationError({ status: ['Use Y/N or 1/0.'] });
       sets.push('is_active = ?'); params.push(isActive ? 1 : 0);
     }
-    if (!sets.length) return res.status(200).json({ id, updated: false });
+    if (!sets.length) return res.status(200).json({ id, updated: false, message: 'Updated' });
     sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId);
     params.push(id);
     await pool.query(`UPDATE master_lookups SET ${sets.join(', ')} WHERE id = ?`, params);
-    res.status(200).json({ id });
+    res.status(200).json({ id, message: 'Updated' });
   } catch (e) { next(e); }
 });
 

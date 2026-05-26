@@ -50,6 +50,7 @@ router.put('/', async (req, res, next) => {
       doc_number_so: req.body.doc_number_so,
       previous_status: order.status,
       order_status: newStatus,
+      message: 'Order status updated successfully',
     });
   } catch (e) { next(e); }
 });

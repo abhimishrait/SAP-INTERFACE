@@ -91,6 +91,7 @@ async function upsertOneRow(row) {
       ok: true, status: out.updated ? 200 : 201,
       id: out.id, price_list_id: out.price_list_id,
       rate_group_id: priceGroupId, product_id: productId, rate, is_active: isActive,
+      message: out.updated ? 'Updated' : 'Created',
     };
   } catch (err) {
     if (err instanceof ValidationError) return { ok: false, status: 400, error: err.errors };
@@ -149,10 +150,10 @@ router.put('/:id/', async (req, res, next) => {
       if (isActive === null) throw new ValidationError({ status: ['Use Y/N or 1/0.'] });
       sets.push('is_active = ?'); params.push(isActive ? 1 : 0);
     }
-    if (!sets.length) return res.status(200).json({ id, updated: false });
+    if (!sets.length) return res.status(200).json({ id, updated: false, message: 'Updated' });
     sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
     await pool.query(`UPDATE price_list_items SET ${sets.join(', ')} WHERE id = ?`, params);
-    res.status(200).json({ id });
+    res.status(200).json({ id, message: 'Updated' });
   } catch (e) { next(e); }
 });
 

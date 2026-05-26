@@ -171,7 +171,7 @@ router.post('/', async (req, res, next) => {
       return { id: productId };
     });
 
-    res.status(201).json({ ...out, variant_code: variantCode, product_name: productName, is_active: !!(data.is_active ?? 1) });
+    res.status(201).json({ ...out, variant_code: variantCode, product_name: productName, is_active: !!(data.is_active ?? 1), message: 'Created' });
   } catch (e) { next(e); }
 });
 
@@ -199,7 +199,7 @@ router.put('/:id/', async (req, res, next) => {
       await pool.query(`DELETE FROM products_product_domains WHERE product_id = ?`, [id]);
       await pool.query(`INSERT INTO products_product_domains (product_id, productdomain_id) VALUES (?, ?)`, [id, matrixId]);
     }
-    res.status(200).json({ id });
+    res.status(200).json({ id, message: 'Updated' });
   } catch (e) { next(e); }
 });
 

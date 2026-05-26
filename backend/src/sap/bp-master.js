@@ -214,6 +214,7 @@ router.post('/', async (req, res, next) => {
       customer_code: req.body.customer_code,
       party_name: req.body.store_name,
       is_active: !!isActive,
+      message: 'BP Master created successfully',
     });
   } catch (e) { next(e); }
 });
@@ -273,7 +274,7 @@ router.put('/:id/', async (req, res, next) => {
       userParams.push(exists[0].user_id);
       await pool.query(`UPDATE users SET ${userSets.join(', ')} WHERE id = ?`, userParams);
     }
-    res.status(200).json({ id });
+    res.status(200).json({ id, message: 'Record updated successfully' });
   } catch (e) { next(e); }
 });
 
