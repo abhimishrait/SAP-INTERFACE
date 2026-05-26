@@ -726,7 +726,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "name": "Zone A",
   "status": "Y"
 }`,
-    response: `{ "id": 12, "name": "Zone A", "is_active": true, "message": "Created" }`,
+    response: `{ "id": 12, "name": "Zone A", "code": "Zone A", "is_active": true, "message": "Created" }`,
   },
   'circles': {
     request: `{
@@ -734,7 +734,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "greater_circle_name": "Zone A",
   "status": "Y"
 }`,
-    response: `{ "id": 47, "name": "Town X", "zone_id": 12, "is_active": true, "message": "Created" }`,
+    response: `{ "id": 47, "name": "Town X", "code": "Town X", "zone_id": 12, "is_active": true, "message": "Created" }`,
   },
   'container': {
     request: `{
@@ -742,14 +742,14 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "level": "PRIMARY",
   "status": "Y"
 }`,
-    response: `{ "id": 1, "name": "CRATE", "level": "PRIMARY", "is_active": true, "message": "Created" }`,
+    response: `{ "id": 1, "name": "CRATE", "code": "CRATE", "level": "PRIMARY", "is_active": true, "message": "Created" }`,
   },
   'matrix': {
     request: `{
   "name": "Matrix Group 1",
   "status": "Y"
 }`,
-    response: `{ "id": 1, "name": "Matrix Group 1", "is_active": true, "message": "Created" }`,
+    response: `{ "id": 1, "name": "Matrix Group 1", "code": "Matrix Group 1", "is_active": true, "message": "Created" }`,
   },
   'product-class': {
     request: `{
@@ -757,7 +757,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "unit": "Ltr",
   "status": "Y"
 }`,
-    response: `{ "id": 4, "name": "Dairy Products", "description": "UOM: Ltr", "is_active": true, "message": "Created" }`,
+    response: `{ "id": 4, "name": "Dairy Products", "code": "Dairy Products", "description": "UOM: Ltr", "is_active": true, "message": "Created" }`,
   },
   'product-name': {
     request: `{
@@ -765,7 +765,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "product_class_name": "Dairy Products",
   "status": "Y"
 }`,
-    response: `{ "id": 142, "product_name": "Fresh Milk", "product_class_id": "4", "is_active": true }`,
+    response: `{ "id": 142, "name": "Fresh Milk", "code": "Fresh Milk", "product_class_id": 4, "is_active": true, "message": "Created" }`,
   },
   'payment-terms': {
     request: `{
@@ -773,13 +773,13 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "term_days": "30",
   "status": "Y"
 }`,
-    response: `{ "id": 3, "payment_term_name": "Net 30", "term_days": 30, "is_active": true, "message": "Created" }`,
+    response: `{ "id": 3, "payment_term_name": "Net 30", "code": "Net 30", "term_days": 30, "is_active": true, "message": "Created" }`,
   },
   'price-list-group': {
     request: `{
   "name": "Standard",
   "status": "Y"
 }`,
-    response: `{ "id": 1, "name": "Standard", "is_active": true, "message": "Created" }`,
+    response: `{ "id": 1, "name": "Standard", "code": "Standard", "is_active": true, "message": "Created" }`,
   },
 };

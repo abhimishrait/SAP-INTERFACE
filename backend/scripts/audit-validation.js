@@ -115,6 +115,9 @@ async function main() {
   await expect('case-insensitive variant dup',           'POST', '/sap/products/', { ...baseProd, variant_code: 'milk-fresh-500' }, 400);
   await expect('bad is_packaging_allow "maybe"',         'POST', '/sap/products/', { ...baseProd, variant_code: 'VAR-PA-BAD', is_packaging_allow: 'maybe' }, 400);
   await expect('negative mrp',                           'POST', '/sap/products/', { ...baseProd, variant_code: 'VAR-MRP-NEG', mrp: '-10' }, 400);
+  await expect('no_of_secondary_in_primary non-integer', 'POST', '/sap/products/', { ...baseProd, variant_code: 'VAR-NSP-STR', no_of_secondary_in_primary: 'abc' }, 400);
+  await expect('no_of_secondary_in_primary zero',        'POST', '/sap/products/', { ...baseProd, variant_code: 'VAR-NSP-ZERO', no_of_secondary_in_primary: 0 }, 400);
+  await expect('no_of_secondary_in_primary negative',    'POST', '/sap/products/', { ...baseProd, variant_code: 'VAR-NSP-NEG', no_of_secondary_in_primary: -3 }, 400);
 
   console.log('\n=== 3.1 BP Master ===');
   const baseBp = {

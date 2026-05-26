@@ -100,7 +100,13 @@ async function validateBody(body, { isCreate }) {
     if (pid) out.production_unit_id = pid;
   }
   if (body.no_of_secondary_in_primary !== undefined) {
-    out.pack_size_conversion = String(body.no_of_secondary_in_primary);
+    const v = body.no_of_secondary_in_primary;
+    const n = Number(v);
+    if (v === '' || v === null || !Number.isInteger(n) || n <= 0) {
+      errors.no_of_secondary_in_primary = ['Must be a positive integer.'];
+    } else {
+      out.pack_size_conversion = String(n);
+    }
   }
   if (body.is_packaging_allow !== undefined) {
     const v = toBool(body.is_packaging_allow);
