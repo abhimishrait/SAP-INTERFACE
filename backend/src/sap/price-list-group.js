@@ -8,6 +8,5 @@ const { create, update } = buildSimpleMaster({
   rejectNumericOnly: false,
 });
 router.post('/', create);
-router.put('/', update);
 router.put('/:id/', update);
 module.exports = router;

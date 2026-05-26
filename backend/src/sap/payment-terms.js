@@ -27,7 +27,6 @@ const { create, update } = buildSimpleMaster({
 });
 
 router.post('/', create);
-router.put('/', update);
 router.put('/:id/', update);
 
 module.exports = router;

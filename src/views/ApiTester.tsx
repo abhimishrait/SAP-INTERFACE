@@ -20,17 +20,19 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
   const [activeImported, setActiveImported] = React.useState<{ colId: string; reqIdx: number } | null>(null);
 
   const [method, setMethod] = React.useState(mod.methods[0]);
-  // Pull a sensible default identifier from the sample body so the URL is always
-  // populated with something the backend can actually PUT against.
-  const codeFromSample = (id: string): string => {
+  // Per spec, PUT targets `/sap/<module>/{id}/` with the integer primary key
+  // returned at create time. For modules whose business model has a stable
+  // foreign code (bp_code, customer_code, variant_code), the backend also
+  // accepts that in the URL — we offer it as a hint when the sample contains it.
+  const defaultIdHint = (id: string): string => {
     const raw = (SAMPLE_PAYLOADS as any)[id]?.request;
-    if (!raw) return '';
+    if (!raw) return '1';
     try {
       const obj = JSON.parse(raw);
-      return obj.code || obj.customer_code || obj.bp_code || obj.variant_code || obj.party_code || '';
-    } catch { return ''; }
+      return obj.customer_code || obj.bp_code || obj.variant_code || obj.party_code || '1';
+    } catch { return '1'; }
   };
-  const [recordId, setRecordId] = React.useState(() => codeFromSample(moduleId));
+  const [recordId, setRecordId] = React.useState(() => defaultIdHint(moduleId));
   const [tab, setTab] = React.useState('body');
   const [body, setBody] = React.useState((SAMPLE_PAYLOADS as any)[moduleId]?.request || '{}');
   const [sending, setSending] = React.useState(false);
@@ -48,14 +50,15 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
   React.useEffect(() => {
     setMethod(mod.methods[0]);
     setBody((SAMPLE_PAYLOADS as any)[moduleId]?.request || '{}');
-    setRecordId(codeFromSample(moduleId));
+    setRecordId(defaultIdHint(moduleId));
     setResponse(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleId]);
 
-  // PUT identifies the record via `code` (or business key) in the request body,
-  // so the URL is always the bare module path — no /{id}/ segment.
-  const fullPath = mod.path;
+  // PUT goes to `/sap/<module>/{id}/` per spec. PUT-only modules (3.15, 3.16)
+  // have no path segment — they use the bare module path.
+  const isPutWithId = method === 'PUT' && mod.methods.includes('POST');
+  const fullPath = isPutWithId ? `${mod.path}${recordId}/` : mod.path;
   const fullUrl = `${BASE_URL}${fullPath}`;
 
   const openImported = (colId: string, reqIdx: number) => {
@@ -153,10 +156,25 @@ export default function ApiTester({ selectedModule, setSelectedModule, theme }: 
             }}>
               <span className="mono" style={{ fontSize: 12, color: 'var(--ink-3)' }}>{BASE_URL}</span>
               <span className="mono" style={{ fontSize: 12.5, color: 'var(--orange)', fontWeight: 600 }}>{mod.path}</span>
-              {method === 'PUT' && (
-                <span style={{ marginLeft: 10, fontSize: 10.5, color: 'var(--violet)', fontWeight: 600, letterSpacing: '0.04em' }}>
-                  · code in body
-                </span>
+              {isPutWithId && (
+                <>
+                  <input
+                    value={recordId}
+                    onChange={e => setRecordId(e.target.value)}
+                    placeholder="id"
+                    spellCheck={false}
+                    style={{
+                      minWidth: 80, maxWidth: 200, height: 24,
+                      margin: '0 2px', padding: '0 8px',
+                      background: 'rgba(155,141,255,0.10)',
+                      border: '1px solid rgba(155,141,255,0.45)',
+                      borderRadius: 4, outline: 'none',
+                      fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12,
+                      color: 'var(--violet)', fontWeight: 600,
+                    }}
+                  />
+                  <span className="mono" style={{ fontSize: 12.5, color: 'var(--orange)', fontWeight: 600 }}>/</span>
+                </>
               )}
               <div style={{ flex: 1 }} />
             </div>

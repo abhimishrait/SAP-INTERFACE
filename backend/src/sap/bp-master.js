@@ -118,8 +118,22 @@ async function resolveLookups(body) {
   if (body.organization_name) {
     out.organization_id = await findIdByName('organizations', body.organization_name) || null;
   }
+  if (body.production_unit) {
+    out.production_unit_id = await findIdByName('production_units', body.production_unit) || null;
+  }
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return out;
+}
+
+// Sensible DMS defaults when SAP doesn't supply organization / production_unit:
+// pick the first active row from each table so the BP looks like a native DMS row.
+async function findDefaultOrgId(conn) {
+  const [rows] = await conn.query(`SELECT id FROM organizations WHERE is_active = 1 ORDER BY id LIMIT 1`);
+  return rows[0]?.id || null;
+}
+async function findDefaultProductionUnitId(conn) {
+  const [rows] = await conn.query(`SELECT id FROM production_units WHERE is_active = 1 ORDER BY id LIMIT 1`);
+  return rows[0]?.id || null;
 }
 
 async function findDefaultPositionId(conn) {
@@ -164,27 +178,29 @@ router.post('/', async (req, res, next) => {
       }
 
       // 3) Insert the BP profile
+      const orgId = lookups.organization_id || await findDefaultOrgId(conn);
+      const productionUnitId = lookups.production_unit_id || await findDefaultProductionUnitId(conn);
       const [r] = await conn.query(
         `INSERT INTO external_user_profiles
            (uuid, created_at, updated_at, is_active,
             party_code, party_name, billing_relationship, date_of_joining,
             gstin, pan, status,
-            user_id, position_id, department_id, organization_id, price_group_id,
+            user_id, position_id, department_id, organization_id, production_unit_id, price_group_id,
             payment_term_id,
             date_of_birth, father_name, mother_name, gender,
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
-                 ?, ?, 'DIRECT', ?,
+                 ?, ?, 'principal_direct', ?,
                  ?, ?, ?,
-                 ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?,
                  ?,
                  ?, ?, ?, ?,
                  ?, ?)`,
         [
           isActive,
           req.body.customer_code, req.body.store_name, parseDate(req.body.date_of_joining),
-          req.body.vat_number, req.body.pan_number, isActive ? 'ACTIVE' : 'INACTIVE',
-          userId, positionId, lookups.department_id || null, lookups.organization_id || null, lookups.price_group_id || null,
+          req.body.vat_number, req.body.pan_number, isActive ? 'active' : 'inactive',
+          userId, positionId, lookups.department_id || null, orgId, productionUnitId, lookups.price_group_id || null,
           lookups.payment_term_id || null,
           parseDate(req.body.date_of_birth) || null, null, null, null,
           cfg.systemUserId, cfg.systemUserId,
@@ -226,7 +242,7 @@ router.put('/:id/', async (req, res, next) => {
     if (req.body.status !== undefined) {
       const a = toBool(req.body.status);
       sets.push('is_active = ?', `status = ?`);
-      params.push(a ? 1 : 0, a ? 'ACTIVE' : 'INACTIVE');
+      params.push(a ? 1 : 0, a ? 'active' : 'inactive');
     }
     if (req.body.date_of_joining !== undefined) {
       sets.push('date_of_joining = ?'); params.push(parseDate(req.body.date_of_joining));
@@ -234,7 +250,7 @@ router.put('/:id/', async (req, res, next) => {
     if (req.body.date_of_birth !== undefined) {
       sets.push('date_of_birth = ?'); params.push(parseDate(req.body.date_of_birth));
     }
-    for (const k of ['position_id', 'department_id', 'organization_id', 'price_group_id', 'payment_term_id']) {
+    for (const k of ['position_id', 'department_id', 'organization_id', 'production_unit_id', 'price_group_id', 'payment_term_id']) {
       if (lookups[k] !== undefined) { sets.push(`\`${k}\` = ?`); params.push(lookups[k]); }
     }
 

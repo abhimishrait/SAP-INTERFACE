@@ -5,6 +5,5 @@ const buildSimpleMaster = require('./_simpleMaster');
 const router = express.Router();
 const { create, update } = buildSimpleMaster({ table: 'zones' });
 router.post('/', create);
-router.put('/', update);        // body.code identifies the record (preferred)
-router.put('/:id/', update);    // back-compat: code or numeric id in URL
+router.put('/:id/', update);
 module.exports = router;

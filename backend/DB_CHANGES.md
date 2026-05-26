@@ -312,20 +312,32 @@ order-status-sync calls will work.
 If your DMS enums use different tokens, either adjust `backend/src/lib/statusMap.js`
 or align the DMS side to these.
 
-### 3.5 `code` column treated as the SAP-side stable identifier
+### 3.5 `code` column populated automatically from `name`
 
-For every simple master that has a `code` column (`zones`, `towns`, `packaging_types`,
-`product_domains`, `production_categories`, `payment_preferences`, `price_groups`),
-the SAP payload accepts an explicit `code`:
+The spec PDF v1.2 does NOT expose a `code` field on the simple masters
+(sections 3.3 – 3.10). PUT is documented as `/sap/<module>/{id}/` only, where
+`{id}` is the auto-generated integer primary key returned at create time.
 
-- if supplied → uppercased + trimmed, must be unique
-- if missing → auto-derived from `name` (UPPER_SNAKE)
+For DMS tables that have a NOT-NULL `code` column (`zones`, `towns`,
+`packaging_types`, `product_domains`, `production_categories`, `payment_terms`,
+`price_groups`), our backend populates that column server-side from the literal
+`name` value — verbatim, including spaces and case. If a future row would
+collide on the same code we append a `_2`, `_3`, … suffix to keep the unique
+constraint happy without SAP needing to know.
 
-PUT requests can address the record by **`code` in the body** (preferred),
-**`code` in the URL** (back-compat), or **numeric `id` in the URL**.
+Example:
 
-This is what lets SAP push updates without remembering DMS-side numeric IDs.
-Make sure the DMS project keeps `code` populated and unique for these tables.
+```
+POST /sap/greater-circles/  body: { "name": "Zone A", "status": "Y" }
+→ 201 { "id": 14, "name": "Zone A", "is_active": true, "message": "Created" }
+
+DB:
+SELECT name, code FROM zones WHERE id = 14;
+→ Zone A | Zone A
+```
+
+`code` is not part of the SAP API surface. Don't accept it from SAP, don't
+return it as a SAP-facing field — keep it as an internal DMS detail.
 
 ---
 
