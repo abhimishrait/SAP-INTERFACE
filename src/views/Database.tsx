@@ -7,7 +7,9 @@ import { console_ } from '@/lib/api';
 export default function Database() {
   const { data: list, loading, error } = useApi(() => console_.dbTables(), [], { pollMs: 10000 });
   const tables = list?.rows || [];
-  const [selected, setSelected] = React.useState<string>('integration_transactions');
+  // Default to the canonical SAP log table. (integration_transactions was retired
+  // by migration 004 — selecting it would 404/500 depending on backend version.)
+  const [selected, setSelected] = React.useState<string>('sap_sync_logs');
 
   const totalRows = tables.reduce((s, t) => s + (Number(t.approx_rows) || 0), 0);
   const totalMb = tables.reduce((s, t) => s + (Number(t.size_mb) || 0), 0);

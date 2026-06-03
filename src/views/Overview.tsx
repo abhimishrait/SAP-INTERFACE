@@ -97,7 +97,7 @@ export default function Overview({ flowAnim, density }: { flowAnim: boolean; den
         <div className="hd">
           <div>
             <h3>Recent transactions</h3>
-            <div className="sub">Every API call is persisted to <span className="mono">integration_transactions</span> with full request + response bodies.</div>
+            <div className="sub">Every API call is persisted to <span className="mono">sap_sync_logs</span> with full request + response bodies.</div>
           </div>
           <Chip dot kind="ok">streaming</Chip>
         </div>

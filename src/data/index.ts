@@ -485,7 +485,7 @@ export const QUEUE_RECENT = [
 ];
 
 export const DB_TABLES = [
-  { name: 'integration_transactions', rows: 1284901, size: '4.2 GB', writes: '142/s', desc: 'Every API call to /sap/* — request body, response body, headers, latency, retries.' },
+  { name: 'sap_sync_logs', rows: 1284901, size: '4.2 GB', writes: '142/s', desc: 'Every API call to /sap/* (inbound + outbound) — request body, response body, headers, latency, retries.' },
   { name: 'field_map_audit', rows: 89421, size: '142 MB', writes: '8/s', desc: 'Every transform invocation with input/output diff.' },
   { name: 'sync_jobs', rows: 38214, size: '88 MB', writes: '3/s', desc: 'Job lifecycle: queued → mapping → validate → transform → persist.' },
   { name: 'dlq_messages', rows: 1842, size: '14 MB', writes: '0.4/s', desc: 'Dead-letter queue. Auto-retry with exponential backoff, max 3.' },
@@ -520,7 +520,7 @@ Content-Length: ${tx.bytesOut}
 X-Request-Id: req_${tx.id.slice(4)}
 X-Module: ${tx.moduleId}
 X-Mapped-Fields: ${tx.mappedFields}
-X-Persisted-To: integration_transactions, field_map_audit, sync_jobs
+X-Persisted-To: sap_sync_logs, field_map_audit, sync_jobs
 Date: ${iso(tx.ts).slice(0, 19).replace('T', ' ')}`;
 }
 

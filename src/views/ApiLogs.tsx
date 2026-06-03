@@ -253,7 +253,7 @@ function TabDbWrites({ tx }: { tx: Transaction }) {
   } as Record<string, string>)[tx.moduleId] || tx.moduleId.replace(/-/g, '_');
 
   const writes = [
-    { table: 'integration_transactions', op: 'INSERT', pk: tx.id, bytes: tx.bytesIn + tx.bytesOut, ms: 4.2 },
+    { table: 'sap_sync_logs', op: 'INSERT', pk: tx.id, bytes: tx.bytesIn + tx.bytesOut, ms: 4.2 },
     { table: moduleTable, op: tx.method === 'POST' ? 'INSERT' : 'UPDATE', pk: tx.method === 'POST' ? 'auto-id' : tx.customerCode || tx.id, bytes: tx.bytesIn, ms: 5.4 },
   ];
 

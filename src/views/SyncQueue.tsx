@@ -16,7 +16,7 @@ export default function SyncQueue() {
     <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
       <ViewHeader
         title="Sync Queue"
-        sub="Each SAP push moves through validate → mapping → persist synchronously. State lives in integration_transactions."
+        sub="Each SAP push moves through validate → mapping → persist synchronously. State lives in sap_sync_logs."
         actions={
           <>
             {error ? <Chip kind="err" dot>backend offline</Chip> : <Chip kind="ok" dot>{loading ? 'loading' : 'live'}</Chip>}

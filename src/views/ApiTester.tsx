@@ -613,7 +613,7 @@ function ResponsePane({ response, sending, tab, setTab, method, moduleId, url }:
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, padding: 30 }}>
         <Icons.send style={{ width: 36, height: 36, color: 'var(--ink-3)' }} />
         <div style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 600 }}>Hit Send to call <span className="mono" style={{ color: 'var(--orange)' }}>{url}</span></div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>The call will hit the real backend, run validation, write to abc_dms if it passes, and log to integration_transactions.</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>The call will hit the real backend, run validation, write to abc_dms if it passes, and log to sap_sync_logs.</div>
       </div>
     );
   }
@@ -642,7 +642,7 @@ function ResponsePane({ response, sending, tab, setTab, method, moduleId, url }:
           <div className="mono" style={{ fontSize: 12.5, color: 'var(--ink-0)', marginTop: 2 }}>{response.size} B</div>
         </div>
         <Sep />
-        <Chip kind={isOk ? 'ok' : 'err'} dot>{isOk ? 'persisted to integration_transactions' : 'logged · not persisted'}</Chip>
+        <Chip kind={isOk ? 'ok' : 'err'} dot>{isOk ? 'persisted to sap_sync_logs' : 'logged · not persisted'}</Chip>
         <div style={{ flex: 1 }} />
         <button className="btn ghost"><Icons.copy /> Copy</button>
         <button className="btn ghost"><Icons.download /> Save example</button>
@@ -813,7 +813,7 @@ function ResponseLogs({ response, moduleId, method }: { response: any; moduleId:
   if (response.status >= 400) {
     return (
       <div style={{ padding: 14, background: 'var(--red-bg)', border: '1px solid var(--red)', borderRadius: 8, color: 'var(--red)', fontSize: 12 }}>
-        <strong>Failure persisted:</strong> request + response stored in <span className="mono">integration_transactions</span> and pushed to <span className="mono">dlq_messages</span> for retry.
+        <strong>Failure persisted:</strong> request + response stored in <span className="mono">sap_sync_logs</span> and pushed to <span className="mono">dlq_messages</span> for retry.
       </div>
     );
   }
@@ -822,7 +822,7 @@ function ResponseLogs({ response, moduleId, method }: { response: any; moduleId:
       <SubHd>If this were a real call, the following rows would be written</SubHd>
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
         {[
-          { op: 'INSERT', table: 'integration_transactions' },
+          { op: 'INSERT', table: 'sap_sync_logs' },
           { op: 'INSERT', table: 'field_map_audit' },
           { op: method === 'POST' ? 'INSERT' : 'UPDATE', table: moduleId.replace(/-/g, '_') },
           { op: 'UPDATE', table: 'sync_jobs' },
