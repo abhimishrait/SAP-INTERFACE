@@ -136,12 +136,29 @@ async function findDefaultProductionUnitId(conn) {
   return rows[0]?.id || null;
 }
 
+// Defaults the DMS UI marks required but SAP doesn't send:
+//   department -> "Sales", position -> "Distributor", gender -> "male".
+// Resolved at insert time (case-insensitive name lookup) so the BP profile
+// passes the same validation the human form enforces.
 async function findDefaultPositionId(conn) {
-  const [rows] = await conn.query(`SELECT id FROM positions WHERE is_external = 1 ORDER BY id LIMIT 1`);
-  if (rows.length) return rows[0].id;
+  const [byName] = await conn.query(
+    `SELECT id FROM positions WHERE LOWER(name) = 'distributor' LIMIT 1`
+  );
+  if (byName.length) return byName[0].id;
+  const [ext] = await conn.query(`SELECT id FROM positions WHERE is_external = 1 ORDER BY id LIMIT 1`);
+  if (ext.length) return ext[0].id;
   const [any] = await conn.query(`SELECT id FROM positions ORDER BY id LIMIT 1`);
   return any[0]?.id || null;
 }
+
+async function findDefaultDepartmentId(conn) {
+  const [rows] = await conn.query(
+    `SELECT id FROM departments WHERE LOWER(name) = 'sales' LIMIT 1`
+  );
+  return rows[0]?.id || null;
+}
+
+const DEFAULT_GENDER = 'male';
 
 router.post('/', async (req, res, next) => {
   try {
@@ -180,29 +197,38 @@ router.post('/', async (req, res, next) => {
       // 3) Insert the BP profile
       const orgId = lookups.organization_id || await findDefaultOrgId(conn);
       const productionUnitId = lookups.production_unit_id || await findDefaultProductionUnitId(conn);
+      const departmentId = lookups.department_id || await findDefaultDepartmentId(conn);
+      const gender = (req.body.gender && String(req.body.gender).trim()) || DEFAULT_GENDER;
+      // cost_center_code is NOT NULL on external_user_profiles with no default.
+      // SAP sends `cost_center_master` (validated above as alphanumeric+space+dot);
+      // spec normalizes to UPPER. Accept either field name; empty string when absent
+      // so the BP create doesn't 500 for SAP payloads that omit the cost center.
+      const ccRaw = req.body.cost_center_master ?? req.body.cost_center_code ?? '';
+      const costCenterCode = String(ccRaw).trim().toUpperCase().slice(0, 50);
+
       const [r] = await conn.query(
         `INSERT INTO external_user_profiles
            (uuid, created_at, updated_at, is_active,
             party_code, party_name, billing_relationship, date_of_joining,
             gstin, pan, status,
             user_id, position_id, department_id, organization_id, production_unit_id, price_group_id,
-            payment_term_id,
+            payment_term_id, cost_center_code,
             date_of_birth, father_name, mother_name, gender,
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, 'principal_direct', ?,
                  ?, ?, ?,
                  ?, ?, ?, ?, ?, ?,
-                 ?,
+                 ?, ?,
                  ?, ?, ?, ?,
                  ?, ?)`,
         [
           isActive,
           req.body.customer_code, req.body.store_name, parseDate(req.body.date_of_joining),
           req.body.vat_number, req.body.pan_number, isActive ? 'active' : 'inactive',
-          userId, positionId, lookups.department_id || null, orgId, productionUnitId, lookups.price_group_id || null,
-          lookups.payment_term_id || null,
-          parseDate(req.body.date_of_birth) || null, null, null, null,
+          userId, positionId, departmentId, orgId, productionUnitId, lookups.price_group_id || null,
+          lookups.payment_term_id || null, costCenterCode,
+          parseDate(req.body.date_of_birth) || null, null, null, gender,
           cfg.systemUserId, cfg.systemUserId,
         ]
       );
@@ -250,6 +276,11 @@ router.put('/:id/', async (req, res, next) => {
     }
     if (req.body.date_of_birth !== undefined) {
       sets.push('date_of_birth = ?'); params.push(parseDate(req.body.date_of_birth));
+    }
+    if (req.body.cost_center_master !== undefined || req.body.cost_center_code !== undefined) {
+      const ccRaw = req.body.cost_center_master ?? req.body.cost_center_code ?? '';
+      sets.push('cost_center_code = ?');
+      params.push(String(ccRaw).trim().toUpperCase().slice(0, 50));
     }
     for (const k of ['position_id', 'department_id', 'organization_id', 'production_unit_id', 'price_group_id', 'payment_term_id']) {
       if (lookups[k] !== undefined) { sets.push(`\`${k}\` = ?`); params.push(lookups[k]); }

@@ -1,5 +1,13 @@
-// Logs every SAP-facing request/response into integration_transactions so the
+// Logs every SAP-facing request/response into sap_sync_logs so the
 // console's API Logs / Overview / Sync Queue views have real data to show.
+//
+// Direction:
+//   - INBOUND  = SAP -> DMS (every request this Express app handles under /sap/*)
+//   - OUTBOUND = DMS -> SAP (the SL push side; tagged by whoever writes those rows)
+//
+// This middleware always tags INBOUND. The order-sync table that already lived
+// here keeps its existing rows untouched (they have order_id set); we just
+// reuse the same table for all 16 modules now.
 const crypto = require('crypto');
 const { pool } = require('../db');
 
@@ -27,6 +35,15 @@ function denorm(body) {
     doc_number: body.do_number || body.doc_number_so || null,
     distributor_name: body.store_name || body.bp_name || body.party_name || null,
   };
+}
+
+// Map an HTTP status code to the legacy `status` column (varchar(20)) so older
+// readers that filter on it keep working.
+function statusToken(code) {
+  if (code >= 200 && code < 300) return 'OK';
+  if (code >= 400 && code < 500) return 'REJECTED';
+  if (code >= 500) return 'ERROR';
+  return 'PENDING';
 }
 
 function txLogger(req, res, next) {
@@ -58,19 +75,35 @@ function txLogger(req, res, next) {
       req._error?.message ||
       (capturedBody && typeof capturedBody === 'object' && capturedBody.detail) ||
       null;
+    // sap_sync_logs.sap_doc_entry / sap_doc_num were on the original table; if
+    // the response carries them (delivery-order push) preserve them so the
+    // existing order-sync view keeps showing data.
+    const sapDocEntry = (capturedBody && typeof capturedBody === 'object' && Number.isInteger(capturedBody.sap_doc_entry))
+      ? capturedBody.sap_doc_entry : null;
+    const sapDocNum = (capturedBody && typeof capturedBody === 'object' && capturedBody.sap_doc_num)
+      ? String(capturedBody.sap_doc_num) : null;
 
     pool.query(
-      `INSERT INTO integration_transactions
-        (correlation_id, module_id, method, path, resource_id,
-         status_code, pipeline_stage, error_message,
+      `INSERT INTO sap_sync_logs
+        (uuid, direction, correlation_id, module_id, method, path, resource_id,
+         status, status_code, pipeline_stage, error_message,
          duration_ms, bytes_in, bytes_out, retry_count,
-         request_headers, request_body, response_body,
+         request_headers, request_payload, response_payload,
          remote_ip, user_agent,
-         distributor_name, customer_code, doc_number)
-       VALUES (?,?,?,?,?, ?,?,?, ?,?,?,0, ?,?,?, ?,?, ?,?,?)`,
+         distributor_name, customer_code, doc_number,
+         sap_doc_entry, sap_doc_num,
+         attempted_at, created_at, updated_at)
+       VALUES (REPLACE(UUID(),'-',''), 'INBOUND', ?, ?, ?, ?, ?,
+               ?, ?, ?, ?,
+               ?, ?, ?, 0,
+               ?, ?, ?,
+               ?, ?,
+               ?, ?, ?,
+               ?, ?,
+               NOW(6), NOW(6), NOW(6))`,
       [
         correlationId, moduleId, req.method, req.originalUrl, resourceId,
-        res.statusCode, stage, errorMessage,
+        statusToken(res.statusCode), res.statusCode, stage, errorMessage,
         durationMs, bytesIn, bytesOut,
         safeJson({
           'content-type': req.header('content-type'),
@@ -80,6 +113,7 @@ function txLogger(req, res, next) {
         safeJson(req.body), safeJson(capturedBody),
         req.ip, req.header('user-agent') || null,
         dn.distributor_name, dn.customer_code, dn.doc_number,
+        sapDocEntry, sapDocNum,
       ]
     ).catch(err => {
       // eslint-disable-next-line no-console

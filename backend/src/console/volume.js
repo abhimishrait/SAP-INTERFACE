@@ -18,8 +18,9 @@ router.get('/', async (req, res, next) => {
          FLOOR(TIMESTAMPDIFF(MINUTE, created_at, NOW()) / ?) AS bucket_idx,
          method,
          COUNT(*) AS c
-       FROM integration_transactions
-       WHERE created_at >= NOW() - INTERVAL ? MINUTE
+       FROM sap_sync_logs
+       WHERE module_id IS NOT NULL
+         AND created_at >= NOW() - INTERVAL ? MINUTE
        GROUP BY bucket_idx, method`,
       [bucketMin, winMin]
     );

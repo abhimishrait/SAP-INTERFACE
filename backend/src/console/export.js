@@ -1,4 +1,4 @@
-// /console/export — download integration_transactions in CSV, NDJSON, or XLSX.
+// /console/export — download sap_sync_logs (multi-module SAP traffic) in CSV, NDJSON, or XLSX.
 //   ?hours=24       (default 24, max 720 = 30d)
 //   ?format=xlsx    (default; or "csv" / "ndjson")
 //   ?module=foo     (optional module_id filter)
@@ -13,7 +13,7 @@ const { query } = require('../db');
 const router = express.Router();
 
 const FIELDS = [
-  'id', 'correlation_id', 'module_id', 'method', 'path', 'resource_id',
+  'id', 'correlation_id', 'direction', 'module_id', 'method', 'path', 'resource_id',
   'status_code', 'pipeline_stage', 'error_message',
   'duration_ms', 'bytes_in', 'bytes_out', 'retry_count',
   'distributor_name', 'customer_code', 'doc_number',
@@ -39,11 +39,11 @@ function csvValue(v, field) {
 
 async function fetchRows(hours, moduleFilter) {
   const params = [hours];
-  let where = `WHERE created_at >= NOW() - INTERVAL ? HOUR`;
+  let where = `WHERE module_id IS NOT NULL AND created_at >= NOW() - INTERVAL ? HOUR`;
   if (moduleFilter) { where += ` AND module_id = ?`; params.push(moduleFilter); }
   return query(
     `SELECT ${FIELDS.join(', ')}
-       FROM integration_transactions
+       FROM sap_sync_logs
        ${where}
        ORDER BY created_at DESC`,
     params
@@ -177,6 +177,7 @@ async function buildXlsx(rows, opts) {
   const HEAD = [
     { header: '#',            key: 'id',            width: 6  },
     { header: 'Txn ID',       key: 'correlation_id', width: 22 },
+    { header: 'Direction',    key: 'direction',     width: 10 },
     { header: 'Time · NPT',   key: 'created_at',    width: 22 },
     { header: 'Module',       key: 'module_id',     width: 22 },
     { header: 'Method',       key: 'method',        width: 8  },

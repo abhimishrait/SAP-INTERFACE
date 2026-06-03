@@ -14,8 +14,9 @@ router.get('/stats', async (req, res, next) => {
               SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS errors_24h,
               AVG(duration_ms) AS avg_ms,
               MAX(created_at) AS last_seen
-         FROM integration_transactions
-        WHERE created_at > NOW() - INTERVAL 24 HOUR
+         FROM sap_sync_logs
+        WHERE module_id IS NOT NULL
+          AND created_at > NOW() - INTERVAL 24 HOUR
         GROUP BY module_id`
     );
     res.json({ rows });
@@ -25,9 +26,9 @@ router.get('/stats', async (req, res, next) => {
 router.get('/:moduleId/recent', async (req, res, next) => {
   try {
     const rows = await query(
-      `SELECT id, correlation_id AS tx_id, method, path, status_code, duration_ms,
+      `SELECT id, correlation_id AS tx_id, direction, method, path, status_code, duration_ms,
               customer_code, doc_number, distributor_name, created_at
-         FROM integration_transactions
+         FROM sap_sync_logs
         WHERE module_id = ?
         ORDER BY created_at DESC
         LIMIT 50`,

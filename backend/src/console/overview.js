@@ -6,6 +6,8 @@ const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
+    // module_id IS NOT NULL filters out legacy order-sync rows (pre-migration 004)
+    // that don't belong to the multi-module API Logs view.
     const [totals] = await query(
       `SELECT
          COUNT(*) AS total,
@@ -13,21 +15,24 @@ router.get('/', async (req, res, next) => {
          SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS errors,
          AVG(duration_ms) AS avg_ms,
          MAX(created_at) AS latest
-       FROM integration_transactions
-       WHERE created_at > NOW() - INTERVAL 24 HOUR`
+       FROM sap_sync_logs
+       WHERE module_id IS NOT NULL
+         AND created_at > NOW() - INTERVAL 24 HOUR`
     );
     const byModule = await query(
       `SELECT module_id, COUNT(*) AS calls,
               SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS errs
-         FROM integration_transactions
-        WHERE created_at > NOW() - INTERVAL 24 HOUR
+         FROM sap_sync_logs
+        WHERE module_id IS NOT NULL
+          AND created_at > NOW() - INTERVAL 24 HOUR
         GROUP BY module_id
         ORDER BY calls DESC`
     );
     const recent = await query(
-      `SELECT id, correlation_id AS tx_id, module_id, method, path, status_code, duration_ms,
+      `SELECT id, correlation_id AS tx_id, direction, module_id, method, path, status_code, duration_ms,
               distributor_name, customer_code, doc_number, created_at
-         FROM integration_transactions
+         FROM sap_sync_logs
+        WHERE module_id IS NOT NULL
         ORDER BY created_at DESC
         LIMIT 8`
     );

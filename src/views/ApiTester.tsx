@@ -672,17 +672,77 @@ function ResponsePane({ response, sending, tab, setTab, method, moduleId, url }:
 }
 
 function ResponseBody({ response }: { response: any }) {
-  const str = typeof response.body === 'string' ? response.body : JSON.stringify(response.body, null, 2);
+  const [view, setView] = React.useState<'pretty' | 'raw' | 'preview'>('pretty');
+  const isObj = response.body && typeof response.body === 'object';
+  const pretty = isObj ? JSON.stringify(response.body, null, 2) : String(response.body ?? '');
+  const raw = isObj ? JSON.stringify(response.body) : String(response.body ?? '');
+
+  const tabs: { id: 'pretty' | 'raw' | 'preview'; label: string }[] = [
+    { id: 'pretty', label: 'Pretty' },
+    { id: 'raw', label: 'Raw' },
+    { id: 'preview', label: 'Preview' },
+  ];
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {['Pretty', 'Raw', 'Preview'].map((t, i) => (
-          <button key={t} className={i === 0 ? 'btn' : 'btn ghost'} style={{ padding: '4px 10px', fontSize: 11 }}>{t}</button>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setView(t.id)}
+            className={view === t.id ? 'btn' : 'btn ghost'}
+            style={{ padding: '4px 10px', fontSize: 11 }}>
+            {t.label}
+          </button>
         ))}
         <div style={{ flex: 1 }} />
         <span className="chip muted">JSON</span>
       </div>
-      <JsonBlock src={str} />
+      {view === 'pretty' && <JsonBlock src={pretty} />}
+      {view === 'raw' && (
+        <pre style={{
+          margin: 0, padding: '12px 14px',
+          background: 'var(--code-bg)', border: '1px solid var(--line)', borderRadius: 8,
+          fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12,
+          color: 'var(--ink-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        }}>{raw}</pre>
+      )}
+      {view === 'preview' && (
+        isObj ? <ResponsePreviewTable obj={response.body} /> : (
+          <pre style={{
+            margin: 0, padding: '12px 14px',
+            background: 'var(--code-bg)', border: '1px solid var(--line)', borderRadius: 8,
+            fontFamily: 'var(--font-jetbrains-mono), monospace', fontSize: 12,
+            color: 'var(--ink-1)', whiteSpace: 'pre-wrap',
+          }}>{pretty}</pre>
+        )
+      )}
+    </div>
+  );
+}
+
+function ResponsePreviewTable({ obj }: { obj: any }) {
+  const entries = Object.entries(obj);
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+      {entries.map(([k, v], i) => {
+        const display = v === null || v === undefined
+          ? <span style={{ color: 'var(--ink-3)', fontStyle: 'italic' }}>null</span>
+          : typeof v === 'object'
+            ? <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-1)' }}>{JSON.stringify(v)}</span>
+            : <span className="mono" style={{ fontSize: 12, color: 'var(--ink-1)' }}>{String(v)}</span>;
+        return (
+          <div key={k} style={{
+            display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12,
+            padding: '8px 14px',
+            borderBottom: i < entries.length - 1 ? '1px solid var(--line)' : 'none',
+            background: i % 2 ? 'var(--bg-1)' : 'transparent',
+          }}>
+            <span className="mono" style={{ fontSize: 11.5, color: 'var(--orange)' }}>{k}</span>
+            {display}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -5,15 +5,15 @@ const { query } = require('../db');
 const router = express.Router();
 
 const TABLES_OF_INTEREST = [
-  'integration_transactions',
   'sap_sync_logs',
   'external_user_profiles',
   'sales_orders', 'order_items', 'order_status_history',
   'products', 'price_lists', 'price_list_items',
   'special_price_lists', 'special_price_list_items',
   'schemes', 'scheme_rules', 'scheme_slabs',
-  'zones', 'towns', 'packaging_types', 'product_domains',
-  'production_categories', 'price_groups', 'payment_preferences',
+  'zones', 'towns', 'packaging_types', 'product_domains', 'sujal_matrices',
+  'production_categories', 'price_groups', 'payment_preferences', 'payment_terms',
+  'blanket_agreements', 'blanket_agreement_lines',
   'master_lookups', 'taxes', 'audit_trail', 'activity_logs',
 ];
 

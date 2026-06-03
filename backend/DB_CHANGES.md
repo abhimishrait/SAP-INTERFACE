@@ -9,20 +9,24 @@ All MySQL DDL is idempotent (`IF NOT EXISTS`) where possible.
 
 | Migration file | What it creates / changes |
 |---|---|
-| `001_integration_transactions.sql` | `integration_transactions` (1.1) |
+| `001_integration_transactions.sql` | ~~`integration_transactions`~~ — **superseded by 004** (kept for history) |
 | `002_blanket_agreement_and_payment_terms.sql` | `payment_terms`, `blanket_agreements`, `blanket_agreement_lines` (1.2, 1.3) |
 | `003_external_user_profiles_payment_term_fk.sql` | adds `external_user_profiles.payment_term_id` FK (1.4) |
+| `004_sap_sync_logs_extend_and_retire_intx.sql` | extends `sap_sync_logs` with direction/routing/telemetry cols, relaxes `order_id` to NULLABLE, drops `integration_transactions` (1.1, 1.5) |
 
 ---
 
 ## 1. Hard schema changes (must run as SQL)
 
-### 1.1 NEW TABLE — `integration_transactions`
+### 1.1 ~~NEW TABLE — `integration_transactions`~~ — superseded by 1.5
 
-Logs every SAP → DMS API call across all 16 modules. Powers the console's
-API Logs, Overview, and Sync Queue views.
+Originally introduced as a dedicated table for multi-module SAP API logs.
+The DMS already had `sap_sync_logs` for order syncs, so to keep the schema
+lean we **dropped `integration_transactions`** and extended `sap_sync_logs`
+to handle inbound + outbound traffic across all 16 modules. See section 1.5.
 
-**Status:** ✅ shipped — see `backend/migrations/001_integration_transactions.sql`.
+The CREATE TABLE below is preserved for historical reference only — do not
+re-create this table.
 
 ```sql
 CREATE TABLE IF NOT EXISTS integration_transactions (
@@ -221,6 +225,86 @@ Endpoint behavior:
 - DELETE SET NULL — if a payment-terms row is deleted, BPs pointing at it just lose
   the reference; the BP profile stays intact.
 
+### 1.5 EXTEND `sap_sync_logs` + retire `integration_transactions`
+
+The DMS already had `sap_sync_logs` for order syncs (with `order_id NOT NULL`
+FK → `sales_orders`). To keep the database lean, instead of carrying a parallel
+`integration_transactions` table, we extend `sap_sync_logs` to be the single
+SAP integration log for **inbound** (SAP → DMS) and **outbound** (DMS → SAP)
+traffic across all 16 modules.
+
+**Status:** ✅ shipped — see `backend/migrations/004_sap_sync_logs_extend_and_retire_intx.sql`.
+
+What the migration does:
+- Relaxes existing columns so non-order modules can log too:
+  - `order_id` → `BIGINT NULL` (FK stays; legacy order-sync rows keep their value)
+  - `attempted_at`, `created_at`, `updated_at` → get sensible `CURRENT_TIMESTAMP(6)` defaults
+  - `is_active` → defaults to `1`
+  - `status` widened to `VARCHAR(20)` defaulting to `'PENDING'`
+- Adds the routing / telemetry / denorm columns the console already read on the old table:
+  - `direction ENUM('INBOUND','OUTBOUND') NOT NULL DEFAULT 'INBOUND'`
+  - `correlation_id`, `module_id`, `method`, `path`, `resource_id`
+  - `status_code`, `pipeline_stage` (default `'completed'`)
+  - `duration_ms`, `bytes_in`, `bytes_out`, `retry_count`
+  - `request_headers` (JSON) — `request_payload` / `response_payload` already existed
+  - `remote_ip`, `user_agent`
+  - `distributor_name`, `customer_code`, `doc_number`
+- Adds matching indexes: `idx_ssl_created_at`, `idx_ssl_module_created`,
+  `idx_ssl_status_code`, `idx_ssl_correlation`, `idx_ssl_direction_created`.
+- `DROP TABLE IF EXISTS integration_transactions;`
+
+Code changes that ride with it:
+- `backend/src/middleware/txLogger.js` writes to `sap_sync_logs` with `direction='INBOUND'`.
+- All `backend/src/console/*.js` queries read from `sap_sync_logs` with
+  `WHERE module_id IS NOT NULL` so legacy order-sync rows stay hidden from
+  the multi-module API Logs / Overview / Sync Queue views.
+- Outbound (DMS → SAP) call sites should insert rows with `direction='OUTBOUND'`
+  when they're added.
+
+### 1.6 NEW TABLE — `sujal_matrices` (replaces `product_domains` for Matrix module)
+
+The DMS team added a richer Matrix table than the old `product_domains`
+mapping (spec §3.6 was originally name-only). Matrix POST/PUT now writes
+to `sujal_matrices`.
+
+```sql
+CREATE TABLE sujal_matrices (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  uuid CHAR(32) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  is_active TINYINT(1) NOT NULL,
+
+  material_group      VARCHAR(100) NOT NULL,
+  product_class_name  VARCHAR(255) NOT NULL,
+  hsn_code            VARCHAR(20)  NOT NULL,
+  order_of            INT UNSIGNED NOT NULL,
+  unit                VARCHAR(4)   NOT NULL,
+
+  created_by_id BIGINT NULL,
+  updated_by_id BIGINT NULL,
+
+  UNIQUE KEY uq_sujal_matrix_mg_class_hsn (material_group, product_class_name, hsn_code),
+  KEY idx_sujal_matrix_hsn    (hsn_code),
+  KEY idx_sujal_matrix_mgroup (material_group),
+  CONSTRAINT FOREIGN KEY (created_by_id) REFERENCES users(id),
+  CONSTRAINT FOREIGN KEY (updated_by_id) REFERENCES users(id),
+  CONSTRAINT CHECK (order_of >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+Endpoint behavior (`/sap/matrix/`):
+- POST requires `material_group`, `product_class_name`, `hsn_code`, `order_of`, `unit`, `status`.
+- Uniqueness on (`material_group`, `product_class_name`, `hsn_code`) — both DB enforced and pre-validated.
+- PUT by integer `:id`. Partial updates allowed; dup-check re-evaluates the merged tuple.
+
+### 1.7 NEW COLUMN — `external_user_profiles.cost_center_code`
+
+Added to `external_user_profiles` as `varchar(50) NOT NULL` (no default).
+BP POST/PUT now populates it from the SAP `cost_center_master` payload field
+(also accepts `cost_center_code` directly), normalized to UPPER, capped at 50
+characters. Empty string when SAP omits the field — avoids breaking BP creation.
+
 ---
 
 ## 2. Auto-created seed rows (the backend creates these on demand)
@@ -385,20 +469,24 @@ and wire the write.
 
 ## 5. Summary checklist for the DMS team
 
-- [ ] Run section 1.1 — create `integration_transactions` (one CREATE TABLE).
+- [x] ~~Run section 1.1 — create `integration_transactions`.~~ Superseded by 1.5.
 - [ ] Run section 1.2 — create `payment_terms`.
 - [ ] Run section 1.3 — create `blanket_agreements` + `blanket_agreement_lines`.
 - [ ] Run section 1.4 — add `external_user_profiles.payment_term_id` FK column.
+- [ ] Run section 1.5 — extend `sap_sync_logs` + drop `integration_transactions`.
+- [ ] Run section 1.6 — create `sujal_matrices` (already present on prod).
+- [ ] Run section 1.7 — add `external_user_profiles.cost_center_code` column.
 - [ ] Decide section 4.2 — pick `bp_balances` table OR `external_user_profiles.outstanding_balance` column.
 - [ ] Verify your `sales_orders` has the SAP-sync columns from section 3.3.
 - [ ] Confirm `packaging_types.level` allows `PRIMARY` / `SECONDARY` / `TERTIARY`.
 - [ ] (Optional) Pre-seed the rows from section 2 if you don't want the backend to auto-create them.
 - [ ] Align your status / enum tokens with section 3.4, or change `backend/src/lib/statusMap.js`.
 
-Or just run both migrations against your DMS database in order:
+Or just run the migrations against your DMS database in order:
 
 ```bash
-mysql -u root -p abc_dms < backend/migrations/001_integration_transactions.sql
+# 001 is intentionally skipped — 004 retires the table it created.
 mysql -u root -p abc_dms < backend/migrations/002_blanket_agreement_and_payment_terms.sql
 mysql -u root -p abc_dms < backend/migrations/003_external_user_profiles_payment_term_fk.sql
+mysql -u root -p abc_dms < backend/migrations/004_sap_sync_logs_extend_and_retire_intx.sql
 ```
