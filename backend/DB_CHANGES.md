@@ -13,6 +13,7 @@ All MySQL DDL is idempotent (`IF NOT EXISTS`) where possible.
 | `002_blanket_agreement_and_payment_terms.sql` | `payment_terms`, `blanket_agreements`, `blanket_agreement_lines` (1.2, 1.3) |
 | `003_external_user_profiles_payment_term_fk.sql` | adds `external_user_profiles.payment_term_id` FK (1.4) |
 | `004_sap_sync_logs_extend_and_retire_intx.sql` | extends `sap_sync_logs` with direction/routing/telemetry cols, relaxes `order_id` to NULLABLE, drops `integration_transactions` (1.1, 1.5) |
+| `005_towns_zone_id_nullable.sql` | relaxes `towns.zone_id` to NULLABLE so a Circle (§3.4) can be created without a parent zone — zone is assigned manually in the DMS UI (1.8) |
 
 ---
 
@@ -305,6 +306,26 @@ BP POST/PUT now populates it from the SAP `cost_center_master` payload field
 (also accepts `cost_center_code` directly), normalized to UPPER, capped at 50
 characters. Empty string when SAP omits the field — avoids breaking BP creation.
 
+### 1.8 RELAX — `towns.zone_id` → NULLABLE
+
+Spec §3.4 (Circles) accepts `greater_circle_name` as optional. The DMS team
+maps a Circle to its parent zone manually in the UI rather than from the
+inbound SAP payload, so we drop the `NOT NULL` on the FK column. The FK to
+`zones(id)` is preserved.
+
+**Status:** ✅ shipped — see `backend/migrations/005_towns_zone_id_nullable.sql`.
+
+```sql
+ALTER TABLE towns
+  MODIFY COLUMN zone_id BIGINT NULL;
+```
+
+Endpoint behavior:
+- POST `/sap/circles/` — `greater_circle_name` is optional. If supplied, it
+  must resolve to an existing zone (400 on unknown). If omitted, `zone_id`
+  stays NULL and is assigned later in the DMS UI.
+- PUT `/sap/circles/{id}/` — same rule: optional, validated only when sent.
+
 ---
 
 ## 2. Auto-created seed rows (the backend creates these on demand)
@@ -476,6 +497,7 @@ and wire the write.
 - [ ] Run section 1.5 — extend `sap_sync_logs` + drop `integration_transactions`.
 - [ ] Run section 1.6 — create `sujal_matrices` (already present on prod).
 - [ ] Run section 1.7 — add `external_user_profiles.cost_center_code` column.
+- [ ] Run section 1.8 — relax `towns.zone_id` to NULLABLE.
 - [ ] Decide section 4.2 — pick `bp_balances` table OR `external_user_profiles.outstanding_balance` column.
 - [ ] Verify your `sales_orders` has the SAP-sync columns from section 3.3.
 - [ ] Confirm `packaging_types.level` allows `PRIMARY` / `SECONDARY` / `TERTIARY`.
@@ -489,4 +511,5 @@ Or just run the migrations against your DMS database in order:
 mysql -u root -p abc_dms < backend/migrations/002_blanket_agreement_and_payment_terms.sql
 mysql -u root -p abc_dms < backend/migrations/003_external_user_profiles_payment_term_fk.sql
 mysql -u root -p abc_dms < backend/migrations/004_sap_sync_logs_extend_and_retire_intx.sql
+mysql -u root -p abc_dms < backend/migrations/005_towns_zone_id_nullable.sql
 ```

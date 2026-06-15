@@ -58,7 +58,7 @@ export const MODULES: Module[] = [
     desc: 'Town/area groupings within a Greater Circle',
     path: '/sap/circles/', methods: ['POST', 'PUT'],
     rps: 0.04, errRate: 0, kind: 'geo',
-    rules: ['name must be unique (case-insensitive)', 'greater_circle_name must exist', 'Status supports Y/N or 1/0'],
+    rules: ['name must be unique (case-insensitive)', 'greater_circle_name is optional — if supplied it must exist; mapped manually in DMS otherwise', 'Status supports Y/N or 1/0'],
   },
   {
     id: 'container', code: '3.5', label: 'Container',
@@ -240,7 +240,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
   ],
   'circles': [
     { sap: 'name', sapType: 'string(50)', sapDesc: 'Town name (unique CI)', dms: 'towns.name', dmsType: 'string', dmsDesc: 'Town name', xform: 'TRIM · validate(has alpha)', status: 'mapped', confidence: 100, required: true },
-    { sap: 'greater_circle_name', sapType: 'string(50)', sapDesc: 'Parent zone (must exist)', dms: 'towns.zone_id', dmsType: 'FK', dmsDesc: 'FK → zones', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'greater_circle_name', sapType: 'string(50)', sapDesc: 'Parent zone (optional — mapped manually in DMS if omitted)', dms: 'towns.zone_id', dmsType: 'FK (nullable)', dmsDesc: 'FK → zones', xform: 'lookup if supplied', status: 'mapped', confidence: 99, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'container': [

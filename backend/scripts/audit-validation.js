@@ -53,7 +53,8 @@ async function main() {
 
   console.log('\n=== 3.4 Circles ===');
   await expect('bad greater_circle_name',                'POST', '/sap/circles/', { name: 'BadFK', greater_circle_name: 'NoSuchZone', status: 'Y' }, 400);
-  await expect('missing greater_circle_name',            'POST', '/sap/circles/', { name: 'MissFK', status: 'Y' }, 400);
+  // greater_circle_name is optional — zone is mapped manually in the DMS UI.
+  await expect('missing greater_circle_name accepted',   'POST', '/sap/circles/', { name: `MissFK${Date.now()}`, status: 'Y' }, 201);
   await expect('case-insensitive dup',                   'POST', '/sap/circles/', { name: 'pune north', greater_circle_name: 'North Region', status: 'Y' }, 400);
 
   console.log('\n=== 3.5 Container ===');
