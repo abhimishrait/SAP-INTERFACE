@@ -663,6 +663,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "primary_selling_unit_quantity": 12,
   "secondary_selling_unit_name": "POUCH",
   "secondary_selling_unit_quantity": 1,
+  "mrp": 500,
   "is_packaging_allow": "Y",
   "status": "Y",
   "tax_code": [
@@ -672,12 +673,11 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
     response: `{
   "id": 4218,
   "variant_code": "SKU001",
-  "product_name_id": 142,
-  "matrix_id": 1,
-  "primary_container_id": 1,
-  "secondary_container_id": 2,
-  "taxes": [{ "country": "Nepal", "name": "VAT", "pct": 13.00 }],
-  "is_active": true
+  "product_name": "SAMPLE PRODUCT",
+  "mrp": 500,
+  "sujal_matrix_id": 1,
+  "is_active": true,
+  "message": "Created"
 }`,
   },
   'special-price-list': {

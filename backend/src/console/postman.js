@@ -63,6 +63,7 @@ const SAMPLES = {
     sujal_matrix: 'Matrix Group 1',
     primary_selling_unit_name: 'CRATE', primary_selling_unit_quantity: 12,
     secondary_selling_unit_name: 'POUCH', secondary_selling_unit_quantity: 1,
+    mrp: 500,
     is_packaging_allow: 'Y', status: 'Y',
     tax_code: [{ country_name: 'Nepal', tax_name: 'VAT', tax_percentage: '13' }],
   },
