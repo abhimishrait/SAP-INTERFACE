@@ -122,7 +122,7 @@ export const MODULES: Module[] = [
     path: '/sap/products/', methods: ['POST', 'PUT'],
     rps: 0.4, errRate: 0.8, kind: 'catalog',
     rules: [
-      'product_name must reference existing Product Name',
+      'product_name is free text — stored verbatim',
       'variant_code must be unique (case-insensitive)',
       'sujal_matrix must reference existing Matrix',
       'primary_selling_unit_name + secondary_selling_unit_name must reference existing Containers',
@@ -287,7 +287,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'products': [
-    { sap: 'product_name', sapType: 'string(100)', sapDesc: 'Product (must exist)', dms: 'product_name_id', dmsType: 'FK', dmsDesc: 'FK → product_name', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'product_name', sapType: 'string(100)', sapDesc: 'Product name (free text)', dms: 'products.product_name', dmsType: 'string', dmsDesc: 'Stored verbatim', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
     { sap: 'hsn_code', sapType: 'string(50)', sapDesc: 'HSN/SAC', dms: 'hsn_code', dmsType: 'string', dmsDesc: 'HSN', xform: 'direct', status: 'mapped', confidence: 100, required: true },
     { sap: 'variant_code', sapType: 'string(25)', sapDesc: 'SKU (unique CI)', dms: 'variant_code', dmsType: 'string PK', dmsDesc: 'SKU', xform: 'UPPER + unique', status: 'mapped', confidence: 100, required: true },
     { sap: 'sujal_matrix', sapType: 'string(255)', sapDesc: 'Matrix (must exist)', dms: 'matrix_id', dmsType: 'FK', dmsDesc: 'FK → matrix', xform: 'lookup', status: 'mapped', confidence: 98, required: true },

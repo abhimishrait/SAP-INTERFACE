@@ -1,7 +1,7 @@
 // 3.13 Products (Variants) → products
 //
 // SAP sends:
-//   product_name (FK → master_lookups[PRODUCT_NAME]), hsn_code, variant_code (= sku_code),
+//   product_name (free text — stored verbatim), hsn_code, variant_code (= sku_code),
 //   sujal_matrix (FK → sujal_matrices.name), primary_selling_unit_name / secondary_selling_unit_name
 //   (both FK → packaging_types.name), tax_code[] (array of {country, name, percentage}),
 //   is_packaging_allow, status, mrp, production_unit, ...
@@ -13,14 +13,6 @@ const { findIdByName, findIdByCode } = require('../lib/lookup');
 const cfg = require('../config');
 
 const router = express.Router();
-
-async function lookupProductNameLabel(name) {
-  const [rows] = await pool.query(
-    `SELECT id FROM master_lookups WHERE category = 'PRODUCT_NAME' AND LOWER(label) = LOWER(?) LIMIT 1`,
-    [name]
-  );
-  return rows[0]?.id || null;
-}
 
 async function resolveTax(taxEntry) {
   const { country_name, tax_name, tax_percentage } = taxEntry || {};
@@ -55,11 +47,7 @@ async function validateBody(body, { isCreate }) {
 
   const out = {};
 
-  if (body.product_name !== undefined) {
-    const pnId = await lookupProductNameLabel(body.product_name);
-    if (!pnId) errors.product_name = [`Product Name '${body.product_name}' does not exist.`];
-    out._product_name_label = body.product_name; // we store the literal value too
-  }
+  // product_name is free text — written verbatim to products.product_name.
   if (body.sujal_matrix !== undefined) {
     // Matrix lives in `sujal_matrices` (simple-master shape: name + code +
     // is_active). SAP sends the matrix `name` in `sujal_matrix`.
@@ -135,7 +123,7 @@ router.post('/', async (req, res, next) => {
     const data = await validateBody(req.body, { isCreate: true });
     const productName = String(req.body.product_name).trim();
     const sujalMatrixId = data._sujal_matrix_id;
-    delete data._sujal_matrix_id; delete data._product_name_label;
+    delete data._sujal_matrix_id;
 
     const out = await withTx(async (conn) => {
       const [r] = await conn.query(
@@ -181,7 +169,7 @@ router.put('/:id/', async (req, res, next) => {
     const [exists] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
     const data = await validateBody(req.body, { isCreate: false });
-    delete data._sujal_matrix_id; delete data._product_name_label;
+    delete data._sujal_matrix_id;
 
     const sets = [];
     const params = [];

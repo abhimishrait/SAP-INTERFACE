@@ -105,7 +105,8 @@ async function main() {
     tax_code: [{ country_name: 'India', tax_name: 'GST 5%', tax_percentage: '5' }],
     is_packaging_allow: 'Y', status: 'Y',
   };
-  await expect('bad product_name FK',                    'POST', '/sap/products/', { ...baseProd, product_name: 'NoSuchPN', variant_code: 'VAR-PN-FK' }, 400);
+  // product_name is free text — any string is accepted, no FK check.
+  await expect('product_name free text accepted',        'POST', '/sap/products/', { ...baseProd, product_name: `FreeText${Date.now()}`, variant_code: `VAR-PN-FREE-${Date.now()}` }, 201);
   await expect('bad matrix FK',                          'POST', '/sap/products/', { ...baseProd, sujal_matrix: 'NoSuchMatrix', variant_code: 'VAR-MX-FK' }, 400);
   await expect('bad primary container FK',               'POST', '/sap/products/', { ...baseProd, primary_selling_unit_name: 'NoSuchContainer', variant_code: 'VAR-PC-FK' }, 400);
   await expect('bad secondary container FK',             'POST', '/sap/products/', { ...baseProd, secondary_selling_unit_name: 'NoSuchContainer', variant_code: 'VAR-SC-FK' }, 400);
