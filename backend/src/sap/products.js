@@ -159,7 +159,14 @@ router.post('/', async (req, res, next) => {
       return { id: productId, sujal_matrix_id: sujalMatrixId || null };
     });
 
-    res.status(201).json({ ...out, variant_code: variantCode, product_name: productName, is_active: !!(data.is_active ?? 1), message: 'Created' });
+    res.status(201).json({
+      ...out,
+      variant_code: variantCode,
+      product_name: productName,
+      mrp: data.mrp ?? 0,
+      is_active: !!(data.is_active ?? 1),
+      message: 'Created',
+    });
   } catch (e) { next(e); }
 });
 
@@ -183,7 +190,11 @@ router.put('/:id/', async (req, res, next) => {
       sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
       await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, params);
     }
-    res.status(200).json({ id, message: 'Updated' });
+    res.status(200).json({
+      id,
+      ...(data.mrp !== undefined ? { mrp: data.mrp } : {}),
+      message: 'Updated',
+    });
   } catch (e) { next(e); }
 });
 

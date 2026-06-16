@@ -82,13 +82,6 @@ export const MODULES: Module[] = [
     rules: ['name must be unique (case-insensitive)', 'unit accepts Kg, Ltr, Pcs, etc.', 'Status supports Y/N or 1/0'],
   },
   {
-    id: 'product-name', code: '3.8', label: 'Product Name',
-    desc: 'Primary product identifier',
-    path: '/sap/product-name/', methods: ['POST', 'PUT'],
-    rps: 0.06, errRate: 0.1, kind: 'catalog',
-    rules: ['name must be unique (case-insensitive)', 'product_class_name must exist', 'Status supports Y/N or 1/0'],
-  },
-  {
     id: 'payment-terms', code: '3.9', label: 'Payment Terms',
     desc: 'Credit policies, due-date calc',
     path: '/sap/payment-terms/', methods: ['POST', 'PUT'],
