@@ -14,19 +14,60 @@ const cfg = require('../config');
 
 const router = express.Router();
 
+// Find-or-create the (country, tax) pair. The DMS doesn't pre-seed these
+// masters, so a fresh install would otherwise 400 on every product POST.
+// We mint a country row (code = first 3 letters of name, suffix on collision)
+// and a tax row when missing, then return the tax id.
+async function deriveCountryCode(name) {
+  const base = String(name || '').replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 3) || 'XXX';
+  for (let i = 0; i < 50; i++) {
+    const candidate = i === 0 ? base : `${base.slice(0, 2)}${i}`;
+    const [rows] = await pool.query(`SELECT 1 FROM countries WHERE code = ? LIMIT 1`, [candidate]);
+    if (!rows.length) return candidate;
+  }
+  return `${base}_${Date.now() % 10000}`;
+}
+
+async function findOrCreateCountry(name) {
+  const trimmed = String(name).trim();
+  const [existing] = await pool.query(
+    `SELECT id FROM countries WHERE LOWER(name) = LOWER(?) LIMIT 1`, [trimmed]
+  );
+  if (existing[0]) return existing[0].id;
+  const code = await deriveCountryCode(trimmed);
+  const [r] = await pool.query(
+    `INSERT INTO countries (uuid, created_at, updated_at, is_active, name, code, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?)`,
+    [trimmed, code, cfg.systemUserId, cfg.systemUserId]
+  );
+  return r.insertId;
+}
+
+async function findOrCreateTax(countryId, taxName, pct) {
+  const trimmed = String(taxName).trim();
+  const [existing] = await pool.query(
+    `SELECT id FROM taxes
+      WHERE country_id = ? AND LOWER(tax_name) = LOWER(?) AND value_percent = ?
+      LIMIT 1`,
+    [countryId, trimmed, pct]
+  );
+  if (existing[0]) return existing[0].id;
+  const [r] = await pool.query(
+    `INSERT INTO taxes (uuid, created_at, updated_at, is_active, tax_name, value_percent, country_id, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?, ?)`,
+    [trimmed, pct, countryId, cfg.systemUserId, cfg.systemUserId]
+  );
+  return r.insertId;
+}
+
 async function resolveTax(taxEntry) {
   const { country_name, tax_name, tax_percentage } = taxEntry || {};
   if (!country_name || !tax_name || tax_percentage == null) return { err: 'tax_code entry incomplete' };
   const pct = toDecimal(tax_percentage);
   if (pct === null || pct < 0 || pct > 100) return { err: 'tax_percentage must be 0-100' };
-  const [rows] = await pool.query(
-    `SELECT t.id FROM taxes t
-       JOIN countries c ON c.id = t.country_id
-      WHERE LOWER(c.name) = LOWER(?) AND LOWER(t.tax_name) = LOWER(?) AND t.value_percent = ?
-      LIMIT 1`,
-    [country_name, tax_name, pct]
-  );
-  return { id: rows[0]?.id || null, country: country_name, tax_name, pct };
+  const countryId = await findOrCreateCountry(country_name);
+  const taxId = await findOrCreateTax(countryId, tax_name, pct);
+  return { id: taxId, country: country_name, tax_name, pct };
 }
 
 async function validateBody(body, { isCreate }) {
@@ -73,7 +114,6 @@ async function validateBody(body, { isCreate }) {
       // Take the FIRST tax entry as the product's primary tax (products.tax_id is single).
       const first = await resolveTax(body.tax_code[0]);
       if (first.err) errors.tax_code = [first.err];
-      else if (!first.id) errors.tax_code = [`No matching tax found for country '${first.country}' / '${first.tax_name}' / ${first.pct}%.`];
       else out.tax_id = first.id;
     }
   }
