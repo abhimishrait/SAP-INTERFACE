@@ -2,7 +2,7 @@
 //
 // SAP sends:
 //   product_name (FK → master_lookups[PRODUCT_NAME]), hsn_code, variant_code (= sku_code),
-//   sujal_matrix (FK → product_domains.name), primary_selling_unit_name / secondary_selling_unit_name
+//   sujal_matrix (FK → sujal_matrices.name), primary_selling_unit_name / secondary_selling_unit_name
 //   (both FK → packaging_types.name), tax_code[] (array of {country, name, percentage}),
 //   is_packaging_allow, status, mrp, production_unit, ...
 const express = require('express');
@@ -61,24 +61,12 @@ async function validateBody(body, { isCreate }) {
     out._product_name_label = body.product_name; // we store the literal value too
   }
   if (body.sujal_matrix !== undefined) {
-    // Matrix moved from `product_domains` to dedicated `sujal_matrices` (migration
-    // shipped alongside matrix.js rewrite). Look up by material_group, which is
-    // the natural single-key handle SAP sends in `sujal_matrix`. Fall back to the
-    // legacy product_domains table so historical rows still resolve.
+    // Matrix lives in `sujal_matrices` (simple-master shape: name + code +
+    // is_active). SAP sends the matrix `name` in `sujal_matrix`.
     const ref = String(body.sujal_matrix).trim();
-    const [sm] = await pool.query(
-      `SELECT id FROM sujal_matrices WHERE LOWER(material_group) = LOWER(?) LIMIT 1`, [ref]
-    );
-    if (sm.length) {
-      out._sujal_matrix_id = sm[0].id;
-    } else {
-      const legacy = await findIdByName('product_domains', ref);
-      if (!legacy) {
-        errors.sujal_matrix = [`Matrix '${ref}' does not exist.`];
-      } else {
-        out._matrix_id = legacy; // legacy M2M still wired below
-      }
-    }
+    const smId = await findIdByName('sujal_matrices', ref);
+    if (!smId) errors.sujal_matrix = [`Matrix '${ref}' does not exist.`];
+    else out._sujal_matrix_id = smId;
   }
   if (body.primary_selling_unit_name !== undefined) {
     const p = await findIdByName('packaging_types', body.primary_selling_unit_name);
@@ -146,9 +134,8 @@ router.post('/', async (req, res, next) => {
 
     const data = await validateBody(req.body, { isCreate: true });
     const productName = String(req.body.product_name).trim();
-    const matrixId = data._matrix_id;
     const sujalMatrixId = data._sujal_matrix_id;
-    delete data._matrix_id; delete data._sujal_matrix_id; delete data._product_name_label;
+    delete data._sujal_matrix_id; delete data._product_name_label;
 
     const out = await withTx(async (conn) => {
       const [r] = await conn.query(
@@ -178,13 +165,6 @@ router.post('/', async (req, res, next) => {
         ]
       );
       const productId = r.insertId;
-      if (matrixId) {
-        // Legacy product_domains M2M (kept for backward compatibility).
-        await conn.query(
-          `INSERT INTO products_product_domains (product_id, productdomain_id) VALUES (?, ?)`,
-          [productId, matrixId]
-        );
-      }
       // sujal_matrices has no products M2M yet — once the DMS team adds one,
       // wire sujalMatrixId through here. For now the match validates existence;
       // returning the id in the response so SAP / console can correlate.
@@ -201,8 +181,7 @@ router.put('/:id/', async (req, res, next) => {
     const [exists] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
     const data = await validateBody(req.body, { isCreate: false });
-    const matrixId = data._matrix_id;
-    delete data._matrix_id; delete data._sujal_matrix_id; delete data._product_name_label;
+    delete data._sujal_matrix_id; delete data._product_name_label;
 
     const sets = [];
     const params = [];
@@ -215,10 +194,6 @@ router.put('/:id/', async (req, res, next) => {
     if (sets.length) {
       sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
       await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, params);
-    }
-    if (matrixId) {
-      await pool.query(`DELETE FROM products_product_domains WHERE product_id = ?`, [id]);
-      await pool.query(`INSERT INTO products_product_domains (product_id, productdomain_id) VALUES (?, ?)`, [id, matrixId]);
     }
     res.status(200).json({ id, message: 'Updated' });
   } catch (e) { next(e); }

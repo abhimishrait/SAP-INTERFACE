@@ -249,7 +249,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'matrix': [
-    { sap: 'name', sapType: 'string(50)', sapDesc: 'Matrix grouping (unique CI)', dms: 'product_domains.name', dmsType: 'string', dmsDesc: 'Grouping', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'name', sapType: 'string(50)', sapDesc: 'Matrix grouping (unique CI)', dms: 'sujal_matrices.name', dmsType: 'string', dmsDesc: 'Grouping', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'product-class': [

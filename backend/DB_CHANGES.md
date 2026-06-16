@@ -14,6 +14,7 @@ All MySQL DDL is idempotent (`IF NOT EXISTS`) where possible.
 | `003_external_user_profiles_payment_term_fk.sql` | adds `external_user_profiles.payment_term_id` FK (1.4) |
 | `004_sap_sync_logs_extend_and_retire_intx.sql` | extends `sap_sync_logs` with direction/routing/telemetry cols, relaxes `order_id` to NULLABLE, drops `integration_transactions` (1.1, 1.5) |
 | `005_towns_zone_id_nullable.sql` | relaxes `towns.zone_id` to NULLABLE so a Circle (§3.4) can be created without a parent zone — zone is assigned manually in the DMS UI (1.8) |
+| `006_sujal_matrices_simple_master.sql` | reshapes `sujal_matrices` to the simple-master shape (name + code + is_active); drops the wide columns (`material_group`, `product_class_name`, `hsn_code`, `order_of`, `unit`) since SAP only sends `{ name, status }` for Matrix (1.9) |
 
 ---
 
@@ -262,14 +263,14 @@ Code changes that ride with it:
 - Outbound (DMS → SAP) call sites should insert rows with `direction='OUTBOUND'`
   when they're added.
 
-### 1.6 ~~NEW TABLE — `sujal_matrices`~~ — **reverted** (see 1.9)
+### 1.6 NEW TABLE — `sujal_matrices` (replaces `product_domains` for Matrix module) — **reshaped, see 1.9**
 
-The DMS team initially added a richer Matrix table than the old `product_domains`
-mapping. SAP, however, only sends `{ name, status }` per spec §3.6, so Matrix
-POST/PUT now writes back to `product_domains` — see section 1.9. The
-`sujal_matrices` CREATE below is preserved for historical reference; the
-products lookup in `backend/src/sap/products.js` still falls back to it for
-backward compat with any rows already present.
+The DMS team added a dedicated Matrix table. The original wide shape
+(`material_group`, `product_class_name`, `hsn_code`, `order_of`, `unit`) is
+**superseded by 1.9** — SAP only pushes `{ name, status }` per spec §3.6,
+so the table was reshaped to the simple-master columns (name + code +
+is_active). The wide CREATE below is preserved for historical reference;
+the live shape is in section 1.9.
 
 ```sql
 CREATE TABLE sujal_matrices (
@@ -327,22 +328,34 @@ Endpoint behavior:
   stays NULL and is assigned later in the DMS UI.
 - PUT `/sap/circles/{id}/` — same rule: optional, validated only when sent.
 
-### 1.9 REVERT — Matrix (§3.6) back to `product_domains`
+### 1.9 RESHAPE — `sujal_matrices` → simple-master shape
 
 SAP only sends `{ name, status }` for Matrix per spec PDF v1.2 §3.6. The
-earlier `sujal_matrices` rewrite (§1.6) required `material_group`,
-`product_class_name`, `hsn_code`, `order_of`, `unit`, which SAP doesn't push,
-so Matrix POSTs were 400-ing. We reverted the endpoint to the standard
-simple-master pattern targeting `product_domains` (name + code + is_active).
+original wide shape from §1.6 (`material_group`, `product_class_name`,
+`hsn_code`, `order_of`, `unit`) doesn't match what SAP pushes, so Matrix
+POSTs were 400-ing. We keep the dedicated `sujal_matrices` table but reshape
+it to the standard simple-master columns:
 
-**Status:** ✅ shipped — code-only change, no migration required.
+```sql
+sujal_matrices (
+  id, uuid, created_at, updated_at, is_active,
+  name VARCHAR(255) NOT NULL,
+  code VARCHAR(50)  NOT NULL UNIQUE,
+  created_by_id, updated_by_id
+)
+```
+
+**Status:** ✅ shipped — see `backend/migrations/006_sujal_matrices_simple_master.sql`.
+
+The migration is idempotent: it CREATEs the table if absent, or — if the
+old wide shape exists — backfills `name` from `material_group` (then
+`product_class_name`), drops the old composite unique key, and drops the
+unused columns.
 
 Endpoint behavior:
-- POST `/sap/matrix/` — body: `{ name, status }`. Writes to `product_domains`.
+- POST `/sap/matrix/` — body: `{ name, status }`. Writes to `sujal_matrices`.
 - PUT `/sap/matrix/{id}/` — `name` and/or `status`.
-- Products lookup (`sujal_matrix` field) still tries `sujal_matrices.material_group`
-  first and falls back to `product_domains.name`, so any legacy rows in
-  `sujal_matrices` continue to resolve.
+- Products `sujal_matrix` FK resolves by `sujal_matrices.name` (case-insensitive).
 
 ---
 
@@ -513,7 +526,7 @@ and wire the write.
 - [ ] Run section 1.3 — create `blanket_agreements` + `blanket_agreement_lines`.
 - [ ] Run section 1.4 — add `external_user_profiles.payment_term_id` FK column.
 - [ ] Run section 1.5 — extend `sap_sync_logs` + drop `integration_transactions`.
-- [x] ~~Run section 1.6 — create `sujal_matrices`~~ — reverted by 1.9 (still safe to leave the table in place).
+- [ ] Run section 1.9 — reshape `sujal_matrices` to the simple-master columns (supersedes 1.6).
 - [ ] Run section 1.7 — add `external_user_profiles.cost_center_code` column.
 - [ ] Run section 1.8 — relax `towns.zone_id` to NULLABLE.
 - [ ] Decide section 4.2 — pick `bp_balances` table OR `external_user_profiles.outstanding_balance` column.
@@ -530,4 +543,5 @@ mysql -u root -p abc_dms < backend/migrations/002_blanket_agreement_and_payment_
 mysql -u root -p abc_dms < backend/migrations/003_external_user_profiles_payment_term_fk.sql
 mysql -u root -p abc_dms < backend/migrations/004_sap_sync_logs_extend_and_retire_intx.sql
 mysql -u root -p abc_dms < backend/migrations/005_towns_zone_id_nullable.sql
+mysql -u root -p abc_dms < backend/migrations/006_sujal_matrices_simple_master.sql
 ```
