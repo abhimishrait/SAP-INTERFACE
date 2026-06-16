@@ -262,11 +262,14 @@ Code changes that ride with it:
 - Outbound (DMS → SAP) call sites should insert rows with `direction='OUTBOUND'`
   when they're added.
 
-### 1.6 NEW TABLE — `sujal_matrices` (replaces `product_domains` for Matrix module)
+### 1.6 ~~NEW TABLE — `sujal_matrices`~~ — **reverted** (see 1.9)
 
-The DMS team added a richer Matrix table than the old `product_domains`
-mapping (spec §3.6 was originally name-only). Matrix POST/PUT now writes
-to `sujal_matrices`.
+The DMS team initially added a richer Matrix table than the old `product_domains`
+mapping. SAP, however, only sends `{ name, status }` per spec §3.6, so Matrix
+POST/PUT now writes back to `product_domains` — see section 1.9. The
+`sujal_matrices` CREATE below is preserved for historical reference; the
+products lookup in `backend/src/sap/products.js` still falls back to it for
+backward compat with any rows already present.
 
 ```sql
 CREATE TABLE sujal_matrices (
@@ -294,10 +297,8 @@ CREATE TABLE sujal_matrices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
-Endpoint behavior (`/sap/matrix/`):
-- POST requires `material_group`, `product_class_name`, `hsn_code`, `order_of`, `unit`, `status`.
-- Uniqueness on (`material_group`, `product_class_name`, `hsn_code`) — both DB enforced and pre-validated.
-- PUT by integer `:id`. Partial updates allowed; dup-check re-evaluates the merged tuple.
+~~Endpoint behavior~~ — superseded by section 1.9. The `/sap/matrix/` endpoint
+no longer writes to `sujal_matrices`. See 1.9 for the current contract.
 
 ### 1.7 NEW COLUMN — `external_user_profiles.cost_center_code`
 
@@ -325,6 +326,23 @@ Endpoint behavior:
   must resolve to an existing zone (400 on unknown). If omitted, `zone_id`
   stays NULL and is assigned later in the DMS UI.
 - PUT `/sap/circles/{id}/` — same rule: optional, validated only when sent.
+
+### 1.9 REVERT — Matrix (§3.6) back to `product_domains`
+
+SAP only sends `{ name, status }` for Matrix per spec PDF v1.2 §3.6. The
+earlier `sujal_matrices` rewrite (§1.6) required `material_group`,
+`product_class_name`, `hsn_code`, `order_of`, `unit`, which SAP doesn't push,
+so Matrix POSTs were 400-ing. We reverted the endpoint to the standard
+simple-master pattern targeting `product_domains` (name + code + is_active).
+
+**Status:** ✅ shipped — code-only change, no migration required.
+
+Endpoint behavior:
+- POST `/sap/matrix/` — body: `{ name, status }`. Writes to `product_domains`.
+- PUT `/sap/matrix/{id}/` — `name` and/or `status`.
+- Products lookup (`sujal_matrix` field) still tries `sujal_matrices.material_group`
+  first and falls back to `product_domains.name`, so any legacy rows in
+  `sujal_matrices` continue to resolve.
 
 ---
 
@@ -495,7 +513,7 @@ and wire the write.
 - [ ] Run section 1.3 — create `blanket_agreements` + `blanket_agreement_lines`.
 - [ ] Run section 1.4 — add `external_user_profiles.payment_term_id` FK column.
 - [ ] Run section 1.5 — extend `sap_sync_logs` + drop `integration_transactions`.
-- [ ] Run section 1.6 — create `sujal_matrices` (already present on prod).
+- [x] ~~Run section 1.6 — create `sujal_matrices`~~ — reverted by 1.9 (still safe to leave the table in place).
 - [ ] Run section 1.7 — add `external_user_profiles.cost_center_code` column.
 - [ ] Run section 1.8 — relax `towns.zone_id` to NULLABLE.
 - [ ] Decide section 4.2 — pick `bp_balances` table OR `external_user_profiles.outstanding_balance` column.

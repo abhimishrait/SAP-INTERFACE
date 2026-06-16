@@ -37,9 +37,9 @@ if ($cn) { Hit "3.5 container PUT" "PUT" "$base/container/$($cn.id)/" "{`"name`"
 # 3.5b second container at SECONDARY level (needed for products test)
 $cn2 = Hit "3.5 container POST (secondary)" "POST" "$base/container/" "{`"name`":`"PouchSmoke$stamp`",`"level`":`"SECONDARY`",`"status`":`"Y`"}"
 
-# 3.6 Matrix (sujal_matrices)
-$mx = Hit "3.6 matrix POST" "POST" "$base/matrix/" "{`"material_group`":`"MGSmoke$stamp`",`"product_class_name`":`"PCSmoke$stamp`",`"hsn_code`":`"HSN$stamp`",`"order_of`":1,`"unit`":`"PCS`",`"status`":`"Y`"}"
-if ($mx) { Hit "3.6 matrix PUT" "PUT" "$base/matrix/$($mx.id)/" "{`"order_of`":2,`"status`":`"Y`"}" | Out-Null }
+# 3.6 Matrix (product_domains) — spec is name + status only
+$mx = Hit "3.6 matrix POST" "POST" "$base/matrix/" "{`"name`":`"MatrixSmoke$stamp`",`"status`":`"Y`"}"
+if ($mx) { Hit "3.6 matrix PUT" "PUT" "$base/matrix/$($mx.id)/" "{`"name`":`"MatrixSmoke${stamp}_u`",`"status`":`"Y`"}" | Out-Null }
 
 # 3.7 Product Class (production_categories)
 $pc = Hit "3.7 product-class POST" "POST" "$base/product-class/" "{`"name`":`"PCatSmoke$stamp`",`"unit`":`"kg`",`"status`":`"Y`"}"
@@ -69,7 +69,7 @@ $prodBody = @{
   product_name = if ($pn) { "PNSmoke${stamp}_u" } else { "Default" }
   hsn_code = "HSN$stamp"
   variant_code = "SKU$stamp"
-  sujal_matrix = "MGSmoke$stamp"
+  sujal_matrix = "MatrixSmoke${stamp}_u"
   primary_selling_unit_name = if ($cn) { "CrateSmoke${stamp}_u" } else { "Crate" }
   secondary_selling_unit_name = if ($cn2) { "PouchSmoke$stamp" } else { "Pouch" }
   mrp = 100
