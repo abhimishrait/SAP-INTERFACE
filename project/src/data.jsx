@@ -647,6 +647,8 @@ const SAMPLE_PAYLOADS = {
   "status": "Y",
   "production_unit_id": 1,
   "uom_type": "EA",
+  "product_category": "Dairy",
+  "product_variant_size": 500,
   "tax_code": [
     { "country_name": "Nepal", "tax_name": "VAT", "tax_percentage": "13" }
   ]

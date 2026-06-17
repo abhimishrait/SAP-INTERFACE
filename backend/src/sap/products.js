@@ -9,7 +9,7 @@ const express = require('express');
 const { pool, withTx } = require('../db');
 const { toBool } = require('../lib/statusMap');
 const { ValidationError, NotFoundError, required, toDecimal } = require('../lib/validate');
-const { findIdByName, findIdByCode } = require('../lib/lookup');
+const { findIdByName, defaultProductionLineId } = require('../lib/lookup');
 const cfg = require('../config');
 
 const router = express.Router();
@@ -56,6 +56,42 @@ async function findOrCreateTax(countryId, taxName, pct) {
     `INSERT INTO taxes (uuid, created_at, updated_at, is_active, tax_name, value_percent, country_id, created_by_id, updated_by_id)
      VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?, ?)`,
     [trimmed, pct, countryId, cfg.systemUserId, cfg.systemUserId]
+  );
+  return r.insertId;
+}
+
+async function findOrCreateProductCategory(value) {
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const [existing] = await pool.query(
+    `SELECT id FROM production_categories WHERE LOWER(name) = LOWER(?) OR LOWER(code) = LOWER(?) LIMIT 1`,
+    [trimmed, trimmed]
+  );
+  if (existing[0]) return existing[0].id;
+  const code = trimmed.toUpperCase().slice(0, 50);
+  const lineId = await defaultProductionLineId(cfg.defaults.productionLineCode);
+  const [r] = await pool.query(
+    `INSERT INTO production_categories
+       (uuid, created_at, updated_at, is_active, name, code, production_line_id, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?, ?)`,
+    [trimmed, code, lineId, cfg.systemUserId, cfg.systemUserId]
+  );
+  return r.insertId;
+}
+
+async function findOrCreateUom(value) {
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const [existing] = await pool.query(
+    `SELECT id FROM uoms WHERE LOWER(name) = LOWER(?) OR LOWER(code) = LOWER(?) LIMIT 1`,
+    [trimmed, trimmed]
+  );
+  if (existing[0]) return existing[0].id;
+  const code = trimmed.toUpperCase().slice(0, 50);
+  const [r] = await pool.query(
+    `INSERT INTO uoms (uuid, created_at, updated_at, is_active, name, code, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?)`,
+    [trimmed, code, cfg.systemUserId, cfg.systemUserId]
   );
   return r.insertId;
 }
@@ -141,6 +177,40 @@ async function validateBody(body, { isCreate }) {
     if (!pid && /^\d+$/.test(pu)) pid = Number(pu); // accept literal id too
     if (pid) out.production_unit_id = pid;
   }
+  if (body.product_category_id !== undefined) {
+    const v = body.product_category_id;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n <= 0) {
+      errors.product_category_id = ['Must be a positive integer.'];
+    } else {
+      const [rows] = await pool.query(
+        `SELECT id, production_line_id FROM production_categories WHERE id = ? LIMIT 1`, [n]
+      );
+      if (!rows.length) errors.product_category_id = [`Product Category id '${n}' does not exist.`];
+      else { out.production_category_id = n; out.production_line_id = rows[0].production_line_id; }
+    }
+  } else if (body.product_category !== undefined) {
+    const pc = String(body.product_category).trim();
+    if (!pc) {
+      errors.product_category = ['Cannot be blank.'];
+    } else if (/^\d+$/.test(pc)) {
+      const n = Number(pc);
+      const [rows] = await pool.query(
+        `SELECT id, production_line_id FROM production_categories WHERE id = ? LIMIT 1`, [n]
+      );
+      if (!rows.length) errors.product_category = [`Product Category id '${n}' does not exist.`];
+      else { out.production_category_id = n; out.production_line_id = rows[0].production_line_id; }
+    } else {
+      // Find-or-create so SAP can introduce new categories on the fly.
+      // Pull the category's production_line_id so the product mirrors it.
+      const catId = await findOrCreateProductCategory(pc);
+      out.production_category_id = catId;
+      const [catRows] = await pool.query(
+        `SELECT production_line_id FROM production_categories WHERE id = ? LIMIT 1`, [catId]
+      );
+      if (catRows[0]) out.production_line_id = catRows[0].production_line_id;
+    }
+  }
   if (body.uom_type_id !== undefined) {
     const v = body.uom_type_id;
     const n = Number(v);
@@ -153,11 +223,22 @@ async function validateBody(body, { isCreate }) {
     }
   } else if (body.uom_type !== undefined) {
     const u = String(body.uom_type).trim();
-    let uid = await findIdByName('uoms', u);
-    if (!uid) uid = await findIdByCode('uoms', u);
-    if (!uid && /^\d+$/.test(u)) uid = Number(u);
-    if (!uid) errors.uom_type = [`UOM Type '${u}' does not exist.`];
-    else out.base_uom_id = uid;
+    if (!u) {
+      errors.uom_type = ['Cannot be blank.'];
+    } else if (/^\d+$/.test(u)) {
+      const n = Number(u);
+      const [rows] = await pool.query(`SELECT id FROM uoms WHERE id = ? LIMIT 1`, [n]);
+      if (!rows.length) errors.uom_type = [`UOM Type id '${n}' does not exist.`];
+      else out.base_uom_id = n;
+    } else {
+      // Find-or-create by name/code so SAP can introduce new units on the fly.
+      out.base_uom_id = await findOrCreateUom(u);
+    }
+  }
+  if (body.product_variant_size !== undefined) {
+    const m = toDecimal(body.product_variant_size);
+    if (m === null || m < 0) errors.product_variant_size = ['Must be a non-negative decimal.'];
+    else out.net_content = m;
   }
   if (body.no_of_secondary_in_primary !== undefined) {
     const v = body.no_of_secondary_in_primary;
@@ -199,26 +280,26 @@ router.post('/', async (req, res, next) => {
       const [r] = await conn.query(
         `INSERT INTO products
            (uuid, created_at, updated_at, is_active,
-            sku_code, product_name, hsn_code, mrp, status,
-            primary_packaging_id, secondary_packaging_id, tax_id, production_unit_id, base_uom_id,
-            pack_size_conversion, sync_type,
+            sku_code, product_name, short_name, hsn_code, mrp, status,
+            primary_packaging_id, secondary_packaging_id, tax_id, production_unit_id, base_uom_id, production_category_id, production_line_id,
+            net_content, pack_size_conversion, sync_type,
             has_tertiary_packaging, saleable, returnable, batch_tracking, expiry_tracking,
             fefo_enforced, mfg_date_required, inward_qc_required, grn_auto_approval,
             damage_tracking, stock_rotation_rule, partial_dispatch_allowed,
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
-                 ?, ?, ?, ?, ?,
-                 ?, ?, ?, ?, ?,
-                 ?, 'sap-sync',
+                 ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?, ?,
+                 ?, ?, 'sap-sync',
                  0, 1, 0, 0, 0,
                  0, 0, 0, 1,
                  0, 'FIFO', 1,
                  ?, ?)`,
         [
           data.is_active ?? 1,
-          variantCode, productName, data.hsn_code || null, data.mrp || 0, data.status || 'ACTIVE',
-          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, data.production_unit_id || null, data.base_uom_id || null,
-          data.pack_size_conversion || null,
+          variantCode, productName, productName.slice(0, 100), data.hsn_code || null, data.mrp || 0, data.status || 'ACTIVE',
+          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, data.production_unit_id || null, data.base_uom_id || null, data.production_category_id || null, data.production_line_id || null,
+          data.net_content ?? null, data.pack_size_conversion || null,
           cfg.systemUserId, cfg.systemUserId,
         ]
       );
@@ -254,7 +335,11 @@ router.put('/:id/', async (req, res, next) => {
       if (k === 'status' && data.is_active === undefined) continue; // status set alongside is_active
       sets.push(`\`${k}\` = ?`); params.push(data[k]);
     }
-    if (req.body.product_name !== undefined) { sets.push('product_name = ?'); params.push(String(req.body.product_name).trim()); }
+    if (req.body.product_name !== undefined) {
+      const pn = String(req.body.product_name).trim();
+      sets.push('product_name = ?'); params.push(pn);
+      sets.push('short_name = ?'); params.push(pn.slice(0, 100));
+    }
 
     if (sets.length) {
       sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
