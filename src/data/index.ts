@@ -666,6 +666,8 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "mrp": 500,
   "is_packaging_allow": "Y",
   "status": "Y",
+  "production_unit_id": 1,
+  "uom_type": "EA",
   "tax_code": [
     { "country_name": "Nepal", "tax_name": "VAT", "tax_percentage": "13" }
   ]

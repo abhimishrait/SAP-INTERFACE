@@ -645,6 +645,8 @@ const SAMPLE_PAYLOADS = {
   "secondary_selling_unit_quantity": 1,
   "is_packaging_allow": "Y",
   "status": "Y",
+  "production_unit_id": 1,
+  "uom_type": "EA",
   "tax_code": [
     { "country_name": "Nepal", "tax_name": "VAT", "tax_percentage": "13" }
   ]

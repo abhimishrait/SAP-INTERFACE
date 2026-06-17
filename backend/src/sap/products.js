@@ -123,11 +123,41 @@ async function validateBody(body, { isCreate }) {
     if (m === null || m < 0) errors.mrp = ['Must be a non-negative decimal.'];
     else out.mrp = m;
   }
-  if (body.production_unit !== undefined) {
+  if (body.production_unit_id !== undefined) {
+    const v = body.production_unit_id;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n <= 0) {
+      errors.production_unit_id = ['Must be a positive integer.'];
+    } else {
+      const [rows] = await pool.query(
+        `SELECT id FROM production_units WHERE id = ? LIMIT 1`, [n]
+      );
+      if (!rows.length) errors.production_unit_id = [`Production unit id '${n}' does not exist.`];
+      else out.production_unit_id = n;
+    }
+  } else if (body.production_unit !== undefined) {
     const pu = String(body.production_unit).trim();
     let pid = await findIdByName('production_units', pu);
     if (!pid && /^\d+$/.test(pu)) pid = Number(pu); // accept literal id too
     if (pid) out.production_unit_id = pid;
+  }
+  if (body.uom_type_id !== undefined) {
+    const v = body.uom_type_id;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n <= 0) {
+      errors.uom_type_id = ['Must be a positive integer.'];
+    } else {
+      const [rows] = await pool.query(`SELECT id FROM uoms WHERE id = ? LIMIT 1`, [n]);
+      if (!rows.length) errors.uom_type_id = [`UOM Type id '${n}' does not exist.`];
+      else out.base_uom_id = n;
+    }
+  } else if (body.uom_type !== undefined) {
+    const u = String(body.uom_type).trim();
+    let uid = await findIdByName('uoms', u);
+    if (!uid) uid = await findIdByCode('uoms', u);
+    if (!uid && /^\d+$/.test(u)) uid = Number(u);
+    if (!uid) errors.uom_type = [`UOM Type '${u}' does not exist.`];
+    else out.base_uom_id = uid;
   }
   if (body.no_of_secondary_in_primary !== undefined) {
     const v = body.no_of_secondary_in_primary;
@@ -170,7 +200,7 @@ router.post('/', async (req, res, next) => {
         `INSERT INTO products
            (uuid, created_at, updated_at, is_active,
             sku_code, product_name, hsn_code, mrp, status,
-            primary_packaging_id, secondary_packaging_id, tax_id, production_unit_id,
+            primary_packaging_id, secondary_packaging_id, tax_id, production_unit_id, base_uom_id,
             pack_size_conversion, sync_type,
             has_tertiary_packaging, saleable, returnable, batch_tracking, expiry_tracking,
             fefo_enforced, mfg_date_required, inward_qc_required, grn_auto_approval,
@@ -178,7 +208,7 @@ router.post('/', async (req, res, next) => {
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, ?, ?, ?,
-                 ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?,
                  ?, 'sap-sync',
                  0, 1, 0, 0, 0,
                  0, 0, 0, 1,
@@ -187,7 +217,7 @@ router.post('/', async (req, res, next) => {
         [
           data.is_active ?? 1,
           variantCode, productName, data.hsn_code || null, data.mrp || 0, data.status || 'ACTIVE',
-          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, data.production_unit_id || null,
+          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, data.production_unit_id || null, data.base_uom_id || null,
           data.pack_size_conversion || null,
           cfg.systemUserId, cfg.systemUserId,
         ]
