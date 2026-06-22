@@ -180,7 +180,7 @@ router.post('/', async (req, res, next) => {
              user_type, is_active, is_staff, date_joined, created_at, updated_at,
              country_code, middle_name, failed_login_attempts)
            VALUES ('!sap', 0, REPLACE(UUID(),'-',''), ?, ?, ?, ?,
-                   'EXTERNAL', ?, 0, NOW(6), NOW(6), NOW(6),
+                   'external', ?, 0, NOW(6), NOW(6), NOW(6),
                    ?, ?, 0)`,
           [email, req.body.contact_number, req.body.first_name, req.body.last_name,
             isActive, req.body.contact_country_code, req.body.middle_name || null]

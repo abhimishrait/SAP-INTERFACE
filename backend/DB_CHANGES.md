@@ -371,7 +371,7 @@ DMS project if you want a cleaner setup, or just leave the backend to self-heal.
 | `scheme_types`    | First Blanket Agreement POST | `{ code: 'BLANKET_SAP', name: 'Blanket Agreement (SAP)', is_globally_active: 1, field_visibility_json: '{}' }` |
 | `price_lists`     | First Price List row per `price_group_id` | "rolling" header: `{ file_name: 'sap-sync', effective_from: today, effective_to: '2099-12-31', status: 'ACTIVE' }` |
 | `special_price_lists` | First Special Price List row | "rolling" header: `{ file_name: 'sap-sync', status: 'ACTIVE' }` |
-| `users` (paired user per BP) | First BP Master POST per `customer_code` | `{ email: <bp.email_id> or '<customer_code>@sap.local', password: '!sap' (unusable), user_type: 'EXTERNAL', is_active: <status> }` |
+| `users` (paired user per BP) | First BP Master POST per `customer_code` | `{ email: <bp.email_id> or '<customer_code>@sap.local', password: '!sap' (unusable), user_type: 'external', is_active: <status> }` |
 
 To pre-seed manually in your DMS:
 
