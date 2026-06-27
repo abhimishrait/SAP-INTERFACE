@@ -131,7 +131,7 @@ async function validateBody(body, { isCreate }) {
     const ref = String(body.sujal_matrix).trim();
     const smId = await findIdByName('sujal_matrices', ref);
     if (!smId) errors.sujal_matrix = [`Matrix '${ref}' does not exist.`];
-    else out._sujal_matrix_id = smId;
+    else out.sujal_matrix_id = smId;
   }
   if (body.primary_selling_unit_name !== undefined) {
     const p = await findIdByName('packaging_types', body.primary_selling_unit_name);
@@ -258,7 +258,8 @@ async function validateBody(body, { isCreate }) {
     const a = toBool(body.status);
     if (a === null) errors.status = ['Use Y/N or 1/0.'];
     else out.is_active = a ? 1 : 0;
-    out.status = a ? 'ACTIVE' : 'INACTIVE';
+    // Title-case so the column reads "Active"/"Inactive" instead of SCREAMING.
+    out.status = a ? 'Active' : 'Inactive';
   }
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return out;
@@ -273,15 +274,14 @@ router.post('/', async (req, res, next) => {
 
     const data = await validateBody(req.body, { isCreate: true });
     const productName = String(req.body.product_name).trim();
-    const sujalMatrixId = data._sujal_matrix_id;
-    delete data._sujal_matrix_id;
+    const sujalMatrixId = data.sujal_matrix_id;
 
     const out = await withTx(async (conn) => {
       const [r] = await conn.query(
         `INSERT INTO products
            (uuid, created_at, updated_at, is_active,
             sku_code, product_name, short_name, hsn_code, mrp, status,
-            primary_packaging_id, secondary_packaging_id, tax_id, production_unit_id, base_uom_id, production_category_id, production_line_id,
+            primary_packaging_id, secondary_packaging_id, tax_id, sujal_matrix_id, production_unit_id, base_uom_id, production_category_id, production_line_id,
             net_content, pack_size_conversion, sync_type,
             has_tertiary_packaging, saleable, returnable, batch_tracking, expiry_tracking,
             fefo_enforced, mfg_date_required, inward_qc_required, grn_auto_approval,
@@ -289,7 +289,7 @@ router.post('/', async (req, res, next) => {
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, ?, ?, ?, ?,
-                 ?, ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?, ?, ?,
                  ?, ?, 'sap-sync',
                  0, 1, 0, 0, 0,
                  0, 0, 0, 1,
@@ -297,17 +297,28 @@ router.post('/', async (req, res, next) => {
                  ?, ?)`,
         [
           data.is_active ?? 1,
-          variantCode, productName, productName.slice(0, 100), data.hsn_code || null, data.mrp || 0, data.status || 'ACTIVE',
-          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, data.production_unit_id || null, data.base_uom_id || null, data.production_category_id || null, data.production_line_id || null,
+          variantCode, productName, productName.slice(0, 100), data.hsn_code || null, data.mrp || 0, data.status || 'Active',
+          data.primary_packaging_id, data.secondary_packaging_id, data.tax_id, sujalMatrixId || null, data.production_unit_id || null, data.base_uom_id || null, data.production_category_id || null, data.production_line_id || null,
           data.net_content ?? null, data.pack_size_conversion || null,
           cfg.systemUserId, cfg.systemUserId,
         ]
       );
       const productId = r.insertId;
-      // sujal_matrices has no products M2M yet — once the DMS team adds one,
-      // wire sujalMatrixId through here. For now the match validates existence;
-      // returning the id in the response so SAP / console can correlate.
-      return { id: productId, sujal_matrix_id: sujalMatrixId || null };
+
+      // SAP doesn't send a zone list per product — every product is sellable
+      // in every active zone by default. Insert one products_zones row per
+      // active zone (no-op when there are no active zones).
+      const [zoneRows] = await conn.query(
+        `SELECT id FROM zones WHERE is_active = 1`
+      );
+      if (zoneRows.length) {
+        await conn.query(
+          `INSERT INTO products_zones (product_id, zone_id) VALUES ?`,
+          [zoneRows.map((z) => [productId, z.id])]
+        );
+      }
+
+      return { id: productId, sujal_matrix_id: sujalMatrixId || null, zones_mapped: zoneRows.length };
     });
 
     res.status(201).json({
@@ -327,7 +338,6 @@ router.put('/:id/', async (req, res, next) => {
     const [exists] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
     const data = await validateBody(req.body, { isCreate: false });
-    delete data._sujal_matrix_id;
 
     const sets = [];
     const params = [];

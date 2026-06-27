@@ -121,8 +121,65 @@ async function resolveLookups(body) {
   if (body.production_unit) {
     out.production_unit_id = await findIdByName('production_units', body.production_unit) || null;
   }
+  // Greater Circle (3.3) → zones | Circle (3.4) → towns. Both are M2M on the
+  // BP profile (external_user_profiles_zones / _towns); resolve to ids here
+  // and let the caller persist the M2M rows.
+  if (body.greater_circle_name) {
+    const zid = await findIdByName('zones', body.greater_circle_name);
+    if (!zid) errors.greater_circle_name = [`Zone '${body.greater_circle_name}' does not exist.`];
+    else out.zone_id = zid;
+  }
+  if (body.circle_name) {
+    const tid = await findIdByName('towns', body.circle_name);
+    if (!tid) errors.circle_name = [`Town '${body.circle_name}' does not exist.`];
+    else out.town_id = tid;
+  }
+  // reporting_to_emp → users.id (internal employee that this BP reports to).
+  // SAP now sends the employee CODE; we look it up against users.employee_code
+  // (only `user_type='internal'` is eligible). 400 if the code is unknown so
+  // the integration surfaces the gap instead of silently dropping the link.
+  if (body.reporting_to_emp !== undefined && body.reporting_to_emp !== null && body.reporting_to_emp !== '') {
+    const code = String(body.reporting_to_emp).trim();
+    const [rows] = await pool.query(
+      `SELECT id FROM users WHERE employee_code = ? AND user_type = 'internal' LIMIT 1`,
+      [code]
+    );
+    if (!rows.length) {
+      errors.reporting_to_emp = [`Employee code '${code}' does not match any internal user.`];
+    } else {
+      out.reporting_to_id = rows[0].id;
+    }
+  }
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return out;
+}
+
+// Replace the BP profile's zone/town M2M with the resolved single pair (idempotent).
+async function syncBpZonesTowns(conn, externalProfileId, { zoneId, townId }) {
+  if (zoneId !== undefined) {
+    await conn.query(
+      `DELETE FROM external_user_profiles_zones WHERE externaluserprofile_id = ?`,
+      [externalProfileId]
+    );
+    if (zoneId) {
+      await conn.query(
+        `INSERT INTO external_user_profiles_zones (externaluserprofile_id, zone_id) VALUES (?, ?)`,
+        [externalProfileId, zoneId]
+      );
+    }
+  }
+  if (townId !== undefined) {
+    await conn.query(
+      `DELETE FROM external_user_profiles_towns WHERE externaluserprofile_id = ?`,
+      [externalProfileId]
+    );
+    if (townId) {
+      await conn.query(
+        `INSERT INTO external_user_profiles_towns (externaluserprofile_id, town_id) VALUES (?, ?)`,
+        [externalProfileId, townId]
+      );
+    }
+  }
 }
 
 // Sensible DMS defaults when SAP doesn't supply organization / production_unit:
@@ -212,14 +269,14 @@ router.post('/', async (req, res, next) => {
             party_code, party_name, billing_relationship, date_of_joining,
             gstin, pan, status,
             user_id, position_id, department_id, organization_id, production_unit_id, price_group_id,
-            payment_term_id, cost_center_code,
+            payment_term_id, cost_center_code, reporting_to_id,
             date_of_birth, father_name, mother_name, gender,
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, 'principal_direct', ?,
                  ?, ?, ?,
                  ?, ?, ?, ?, ?, ?,
-                 ?, ?,
+                 ?, ?, ?,
                  ?, ?, ?, ?,
                  ?, ?)`,
         [
@@ -227,12 +284,23 @@ router.post('/', async (req, res, next) => {
           req.body.customer_code, req.body.store_name, parseDate(req.body.date_of_joining),
           req.body.vat_number, req.body.pan_number, isActive ? 'active' : 'inactive',
           userId, positionId, departmentId, orgId, productionUnitId, lookups.price_group_id || null,
-          lookups.payment_term_id || null, costCenterCode,
+          lookups.payment_term_id || null, costCenterCode, lookups.reporting_to_id || null,
           parseDate(req.body.date_of_birth) || null, null, null, gender,
           cfg.systemUserId, cfg.systemUserId,
         ]
       );
-      return { id: r.insertId, user_id: userId, payment_term_id: lookups.payment_term_id || null };
+      // Greater Circle / Circle → external_user_profiles_zones / _towns
+      await syncBpZonesTowns(conn, r.insertId, {
+        zoneId: lookups.zone_id,
+        townId: lookups.town_id,
+      });
+      return {
+        id: r.insertId,
+        user_id: userId,
+        payment_term_id: lookups.payment_term_id || null,
+        zone_id: lookups.zone_id || null,
+        town_id: lookups.town_id || null,
+      };
     });
 
     res.status(201).json({
@@ -282,13 +350,26 @@ router.put('/:id/', async (req, res, next) => {
       sets.push('cost_center_code = ?');
       params.push(String(ccRaw).trim().toUpperCase().slice(0, 50));
     }
-    for (const k of ['position_id', 'department_id', 'organization_id', 'production_unit_id', 'price_group_id', 'payment_term_id']) {
+    for (const k of ['position_id', 'department_id', 'organization_id', 'production_unit_id', 'price_group_id', 'payment_term_id', 'reporting_to_id']) {
       if (lookups[k] !== undefined) { sets.push(`\`${k}\` = ?`); params.push(lookups[k]); }
     }
 
     if (sets.length) {
       sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
       await pool.query(`UPDATE external_user_profiles SET ${sets.join(', ')} WHERE id = ?`, params);
+    }
+
+    // Sync greater_circle / circle M2M (only when those keys are present in the payload).
+    if (req.body.greater_circle_name !== undefined || req.body.circle_name !== undefined) {
+      const conn = await pool.getConnection();
+      try {
+        await syncBpZonesTowns(conn, id, {
+          zoneId: req.body.greater_circle_name !== undefined ? (lookups.zone_id || null) : undefined,
+          townId: req.body.circle_name !== undefined ? (lookups.town_id || null) : undefined,
+        });
+      } finally {
+        conn.release();
+      }
     }
 
     // Sync user row for name/phone/email changes
