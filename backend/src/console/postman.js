@@ -23,6 +23,7 @@ const MODULES = [
   { id: 'delivery-order',       code: '3.14', label: 'Delivery Order',         methods: ['POST', 'PUT'] },
   { id: 'balance-status-update',code: '3.15', label: 'Balance Status Update',  methods: ['PUT'] },
   { id: 'order-status-sync',    code: '3.16', label: 'Order Status Sync',      methods: ['PUT'] },
+  { id: 'channels',             code: 'EXT',  label: 'Channels',               methods: ['POST', 'PUT'] },
 ];
 
 // Spec sample bodies (truncated here; matches Section 3.x of the spec).
@@ -41,6 +42,7 @@ const SAMPLES = {
     reporting_to_emp: 'EMP001',
     greater_circle_name: 'Zone A', circle_name: 'Town X',
     payment_terms: 'Net 30', rate_group: 'Standard',
+    channels: ['GT'],
     status: 'Y', cost_center_master: 'CC.100',
   },
   'blanket-agreement': {
@@ -56,7 +58,7 @@ const SAMPLES = {
   'product-name':       { name: 'Fresh Milk', product_class_name: 'Dairy Products', status: 'Y' },
   'payment-terms':      { payment_term_name: 'Net 30', term_days: '30', status: 'Y' },
   'price-list-group':   { name: 'Standard', status: 'Y' },
-  'price-list':         { rate_group_name: 'Standard', item_code: 'FR0001', container_price: '1585.54', status: 'Y' },
+  'price-list':         { rate_group: 'Standard', item_code: 'FR0001', container_price: '1585.54', status: 'Y' },
   'special-price-list': { item_code: 'FR0123', container_price: '1585.54', discount: '10', party_code: 'CUST1000', start_date: '2022-01-01', end_date: '2022-12-31', status: 'Y' },
   'products': {
     product_name: 'SAMPLE PRODUCT', hsn_code: '0401', variant_code: 'SKU001',
@@ -70,6 +72,7 @@ const SAMPLES = {
     product_category: 'Dairy',
     product_variant_size: 500,
     tax_code: [{ country_name: 'Nepal', tax_name: 'VAT', tax_percentage: '13' }],
+    channels: ['GT', 'MT'],
   },
   'delivery-order': {
     invoice_number: 'INV001', do_entry: 'DOE001', do_number: 'DO-001',
@@ -81,6 +84,11 @@ const SAMPLES = {
   },
   'balance-status-update': { party_code: 'PARTY001', updated_amount: 1500.5 },
   'order-status-sync':     { doc_entry: 'DOC001', doc_number_so: 'DOC-SO-001', status: 'Cancel' },
+  'channels': {
+    channel_code: 'GT', channel_name: 'General Trade',
+    short_name: 'GT', description: 'General trade outlets',
+    status: 'Y',
+  },
 };
 
 function reqItem(mod, method) {
@@ -122,7 +130,7 @@ function groupBy(arr, fn) {
 router.get('/', (req, res) => {
   const baseUrl = req.query.base || `http://localhost:${cfg.port}`;
   // Group by spec category (master / transactional) for cleaner Postman folders.
-  const masterIds = new Set(['bp-master','blanket-agreement','greater-circles','circles','container','matrix','product-class','product-name','payment-terms','price-list-group','price-list','special-price-list','products']);
+  const masterIds = new Set(['bp-master','blanket-agreement','greater-circles','circles','container','matrix','product-class','product-name','payment-terms','price-list-group','price-list','special-price-list','products','channels']);
   const txnIds    = new Set(['delivery-order','balance-status-update','order-status-sync']);
 
   const masters = MODULES.filter(m => masterIds.has(m.id));

@@ -83,10 +83,10 @@ async function main() {
   await expect('duplicate name',                         'POST', '/sap/price-list-group/', { name: 'Wholesale', status: 'Y' }, 400);
 
   console.log('\n=== 3.11 Price List ===');
-  await expect('negative container_price',               'POST', '/sap/price-list/', { rate_group_name: 'Wholesale', item_code: 'MILK-FRESH-500', container_price: '-10', status: 'Y' }, 400);
-  await expect('bad rate_group_name',                    'POST', '/sap/price-list/', { rate_group_name: 'NoSuchGroup', item_code: 'MILK-FRESH-500', container_price: '10', status: 'Y' }, 400);
-  await expect('bad item_code',                          'POST', '/sap/price-list/', { rate_group_name: 'Wholesale', item_code: 'NOPE', container_price: '10', status: 'Y' }, 400);
-  await expect('non-decimal price',                      'POST', '/sap/price-list/', { rate_group_name: 'Wholesale', item_code: 'MILK-FRESH-500', container_price: 'free', status: 'Y' }, 400);
+  await expect('negative container_price',               'POST', '/sap/price-list/', { rate_group: 'Wholesale', item_code: 'MILK-FRESH-500', container_price: '-10', status: 'Y' }, 400);
+  await expect('bad rate_group',                         'POST', '/sap/price-list/', { rate_group: 'NoSuchGroup', item_code: 'MILK-FRESH-500', container_price: '10', status: 'Y' }, 400);
+  await expect('bad item_code',                          'POST', '/sap/price-list/', { rate_group: 'Wholesale', item_code: 'NOPE', container_price: '10', status: 'Y' }, 400);
+  await expect('non-decimal price',                      'POST', '/sap/price-list/', { rate_group: 'Wholesale', item_code: 'MILK-FRESH-500', container_price: 'free', status: 'Y' }, 400);
 
   console.log('\n=== 3.12 Special Price List ===');
   await expect('discount > 100',                         'POST', '/sap/special-price-list/', { item_code: 'MILK-FRESH-500', container_price: '55', discount: '150', party_code: 'DEALER001', start_date: '2026-01-01', end_date: '2026-12-31', status: 'Y' }, 400);

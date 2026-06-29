@@ -48,4 +48,27 @@ async function defaultProductionLineId(defaultCode) {
   return res.insertId;
 }
 
-module.exports = { findIdByName, findIdByCode, mustResolve, defaultProductionLineId };
+// Resolve channels for M2M links on BP and Product masters.
+// Accepts:
+//   - undefined / null  → returns null   (caller treats as "field absent, don't touch M2M")
+//   - "GT"              → returns [<id>] (single string)
+//   - ["GT", "MT", ...] → returns ids in input order, deduped
+//   - []                → returns []     ("clear all assignments")
+// Each item is matched against `channels.code` first, then `channels.name` (CI).
+// Throws ValidationError({ [fieldName]: ["Channel 'X' does not exist."] }) on miss.
+async function resolveChannelIds(input, fieldName = 'channels') {
+  if (input === undefined || input === null) return null;
+  const list = Array.isArray(input) ? input : [input];
+  const cleaned = list.map(x => String(x ?? '').trim()).filter(Boolean);
+  if (!cleaned.length) return [];
+  const ids = [];
+  for (const ref of cleaned) {
+    let id = await findIdByCode('channels', ref);
+    if (!id) id = await findIdByName('channels', ref);
+    if (!id) throw new ValidationError({ [fieldName]: [`Channel '${ref}' does not exist.`] });
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+module.exports = { findIdByName, findIdByCode, mustResolve, defaultProductionLineId, resolveChannelIds };

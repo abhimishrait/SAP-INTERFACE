@@ -6,7 +6,7 @@ const express = require('express');
 const { pool, withTx } = require('../db');
 const { toBool } = require('../lib/statusMap');
 const { ValidationError, NotFoundError, required, isEmail, parseDate } = require('../lib/validate');
-const { findIdByName, findIdByCode } = require('../lib/lookup');
+const { findIdByName, findIdByCode, resolveChannelIds } = require('../lib/lookup');
 const cfg = require('../config');
 
 const router = express.Router();
@@ -150,6 +150,20 @@ async function resolveLookups(body) {
       out.reporting_to_id = rows[0].id;
     }
   }
+  // Channels: SAP can send `channels` (array of code/name strings) and/or the
+  // convenience singular `channel_code` / `channel_name`. Resolve all references
+  // to ids; the caller persists into external_user_profiles_channels.
+  const channelInput =
+    body.channels !== undefined ? body.channels
+    : body.channel_codes !== undefined ? body.channel_codes
+    : body.channel_names !== undefined ? body.channel_names
+    : body.channel_code !== undefined ? body.channel_code
+    : body.channel_name !== undefined ? body.channel_name
+    : undefined;
+  if (channelInput !== undefined) {
+    out.channel_ids = await resolveChannelIds(channelInput, 'channels');
+  }
+
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return out;
 }
@@ -179,6 +193,22 @@ async function syncBpZonesTowns(conn, externalProfileId, { zoneId, townId }) {
         [externalProfileId, townId]
       );
     }
+  }
+}
+
+// Replace the BP's channel M2M set with `channelIds` (idempotent).
+// channelIds: array of channel ids, or null to skip (key absent in payload).
+async function syncBpChannels(conn, externalProfileId, channelIds) {
+  if (channelIds === null || channelIds === undefined) return;
+  await conn.query(
+    `DELETE FROM external_user_profiles_channels WHERE externaluserprofile_id = ?`,
+    [externalProfileId]
+  );
+  if (channelIds.length) {
+    await conn.query(
+      `INSERT INTO external_user_profiles_channels (externaluserprofile_id, channel_id) VALUES ?`,
+      [channelIds.map(cid => [externalProfileId, cid])]
+    );
   }
 }
 
@@ -294,12 +324,15 @@ router.post('/', async (req, res, next) => {
         zoneId: lookups.zone_id,
         townId: lookups.town_id,
       });
+      // Channels → external_user_profiles_channels (M2M; multiple allowed)
+      await syncBpChannels(conn, r.insertId, lookups.channel_ids ?? null);
       return {
         id: r.insertId,
         user_id: userId,
         payment_term_id: lookups.payment_term_id || null,
         zone_id: lookups.zone_id || null,
         town_id: lookups.town_id || null,
+        channel_ids: lookups.channel_ids ?? null,
       };
     });
 
@@ -367,6 +400,17 @@ router.put('/:id/', async (req, res, next) => {
           zoneId: req.body.greater_circle_name !== undefined ? (lookups.zone_id || null) : undefined,
           townId: req.body.circle_name !== undefined ? (lookups.town_id || null) : undefined,
         });
+      } finally {
+        conn.release();
+      }
+    }
+
+    // Sync channels M2M only when one of the channel keys is present in the payload.
+    // Sending `"channels": []` clears all channel assignments for this BP.
+    if (lookups.channel_ids !== undefined) {
+      const conn = await pool.getConnection();
+      try {
+        await syncBpChannels(conn, id, lookups.channel_ids);
       } finally {
         conn.release();
       }

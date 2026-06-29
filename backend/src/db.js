@@ -1,6 +1,14 @@
 const mysql = require('mysql2/promise');
 const cfg = require('./config');
 
+// NPT (Nepal time, UTC+05:45). We force this on both sides of the wire so
+// timestamps are correct regardless of where the Node/MySQL hosts actually run:
+//   - `timezone: '+05:45'` → mysql2 parses returned DATETIMEs as NPT wall-clock,
+//     so JS Date objects represent the correct UTC instant.
+//   - SET time_zone='+05:45' on every new connection (below) → NOW()/CURDATE()
+//     write NPT wall-clock into DATETIME columns.
+const NPT_OFFSET = '+05:45';
+
 const pool = mysql.createPool({
   ...cfg.db,
   waitForConnections: true,
@@ -8,10 +16,11 @@ const pool = mysql.createPool({
   queueLimit: 0,
   decimalNumbers: true,
   dateStrings: false,
-  // Omit `timezone` → mysql2 uses the Node process's local timezone, which matches
-  // the MySQL server's local time (both run on the same machine). Setting 'Z' here
-  // would (incorrectly) re-interpret stored datetimes as UTC and the frontend's
-  // NPT formatter would then add another +05:45, displaying ~17:xx for noon NPT.
+  timezone: NPT_OFFSET,
+});
+
+pool.on('connection', (connection) => {
+  connection.query(`SET time_zone = '${NPT_OFFSET}'`);
 });
 
 // Convenience: run a query and return rows only

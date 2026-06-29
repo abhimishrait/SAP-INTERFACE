@@ -1,7 +1,7 @@
 // 3.11 Price List → price_lists (header per rate-group) + price_list_items (rows).
 //
 // SAP can send either a single row OR an array of rows in one POST.
-//   - Single:  { rate_group_name, item_code, container_price, status }
+//   - Single:  { rate_group, item_code, container_price, status }
 //   - Bulk:    [ { ... }, { ... }, ... ]   (any length)
 //
 // Each row is processed independently: validation failure on one row does NOT roll
@@ -31,7 +31,7 @@ async function ensurePriceListHeader(conn, priceGroupId) {
         file_name, effective_from, effective_to, total_skus, status,
         price_group_id, created_by_id, updated_by_id)
      VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-             'sap-sync', CURDATE(), '2099-12-31', 0, 'ACTIVE',
+             'sap-sync', CURDATE(), '2099-12-31', 0, 'Active',
              ?, ?, ?)`,
     [priceGroupId, cfg.systemUserId, cfg.systemUserId]
   );
@@ -42,7 +42,7 @@ async function ensurePriceListHeader(conn, priceGroupId) {
 // Returns { ok: true, ... } on success or { ok: false, error: {...} } on failure.
 async function upsertOneRow(row) {
   try {
-    const missing = ['rate_group_name', 'item_code', 'container_price', 'status']
+    const missing = ['rate_group', 'item_code', 'container_price', 'status']
       .filter(k => row[k] === undefined || row[k] === null || row[k] === '');
     if (missing.length) {
       const errors = {};
@@ -54,8 +54,8 @@ async function upsertOneRow(row) {
     const rate = toDecimal(row.container_price);
     if (rate === null || rate < 0) throw new ValidationError({ container_price: ['Must be a non-negative decimal.'] });
 
-    const priceGroupId = await findIdByName('price_groups', row.rate_group_name);
-    if (!priceGroupId) throw new ValidationError({ rate_group_name: [`'${row.rate_group_name}' does not exist.`] });
+    const priceGroupId = await findIdByName('price_groups', row.rate_group);
+    if (!priceGroupId) throw new ValidationError({ rate_group: [`'${row.rate_group}' does not exist.`] });
     const [prodRows] = await pool.query(`SELECT id FROM products WHERE sku_code = ? LIMIT 1`, [row.item_code]);
     const productId = prodRows[0]?.id;
     if (!productId) throw new ValidationError({ item_code: [`Product '${row.item_code}' does not exist.`] });

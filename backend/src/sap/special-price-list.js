@@ -26,13 +26,13 @@ async function findProductId(itemCode) {
 
 async function ensureHeader(conn) {
   const [hdr] = await conn.query(
-    `SELECT id FROM special_price_lists WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1`
+    `SELECT id FROM special_price_lists WHERE UPPER(status) = 'ACTIVE' ORDER BY id DESC LIMIT 1`
   );
   if (hdr.length) return hdr[0].id;
   const [r] = await conn.query(
     `INSERT INTO special_price_lists
       (uuid, created_at, updated_at, is_active, file_name, total_items, status, created_by_id, updated_by_id)
-     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'sap-sync', 0, 'ACTIVE', ?, ?)`,
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'sap-sync', 0, 'Active', ?, ?)`,
     [cfg.systemUserId, cfg.systemUserId]
   );
   return r.insertId;

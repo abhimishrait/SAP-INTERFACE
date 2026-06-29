@@ -100,7 +100,7 @@ export const MODULES: Module[] = [
     desc: 'Item-level pricing → rate group',
     path: '/sap/price-list/', methods: ['POST', 'PUT'],
     rps: 0.8, errRate: 0.4, kind: 'pricing',
-    rules: ['rate_group_name + item_code combination must be unique', 'container_price must be valid decimal', 'Status supports Y/N or 1/0'],
+    rules: ['rate_group + item_code combination must be unique', 'container_price must be valid decimal', 'Status supports Y/N or 1/0'],
   },
   {
     id: 'special-price-list', code: '3.12', label: 'Special Price List',
@@ -163,6 +163,18 @@ export const MODULES: Module[] = [
       'All three fields are required — missing any returns 400',
     ],
   },
+  {
+    id: 'channels', code: 'EXT', label: 'Channels',
+    desc: 'Sales channel master (GT, MT, HoReCa…)',
+    path: '/sap/channels/', methods: ['POST', 'PUT'],
+    rps: 0.01, errRate: 0, kind: 'master',
+    rules: [
+      'channel_code is unique (case-insensitive depending on collation), max 50 chars',
+      'channel_name is unique (case-insensitive), max 255 chars',
+      'short_name optional, max 50 chars',
+      'Status supports Y/N or 1/0',
+    ],
+  },
 ];
 
 export const MODULE_BY_ID: Record<string, Module> = Object.fromEntries(MODULES.map(m => [m.id, m]));
@@ -209,6 +221,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'circle_name', sapType: 'string', sapDesc: 'Town (must exist)', dms: 'territory.circle_id', dmsType: 'FK', dmsDesc: 'FK → circles', xform: 'lookup(name → id)', status: 'mapped', confidence: 97, required: false },
     { sap: 'payment_terms', sapType: 'string', sapDesc: 'Payment terms name', dms: 'payment_terms_id', dmsType: 'FK', dmsDesc: 'FK → payment_terms', xform: 'lookup(name → id)', status: 'mapped', confidence: 98, required: false },
     { sap: 'rate_group', sapType: 'string', sapDesc: 'Pricing rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup(name → id)', status: 'mapped', confidence: 98, required: false },
+    { sap: 'channels', sapType: 'string[]', sapDesc: 'Channel codes/names (M2M, optional)', dms: 'external_user_profiles_channels', dmsType: 'M2M', dmsDesc: 'FK → channels', xform: 'lookup(code|name → id) · replace set', status: 'mapped', confidence: 98, required: false },
     { sap: 'status', sapType: 'string', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active flag', xform: 'statusMap(Y/N/1/0)', status: 'mapped', confidence: 100, required: true },
   ],
   'blanket-agreement': [
@@ -265,7 +278,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'price-list': [
-    { sap: 'rate_group_name', sapType: 'string(50)', sapDesc: 'Rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'rate_group', sapType: 'string(50)', sapDesc: 'Rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'item_code', sapType: 'string(20)', sapDesc: 'SKU (must exist)', dms: 'variant_code', dmsType: 'FK', dmsDesc: 'FK → products', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'container_price', sapType: 'string(20)', sapDesc: 'Unit price', dms: 'container_price', dmsType: 'decimal', dmsDesc: 'Price', xform: 'toDecimal', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
@@ -294,6 +307,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'tax_code[].tax_name', sapType: 'string', sapDesc: 'Tax name (in tax_code[])', dms: 'taxes[].name', dmsType: 'string', dmsDesc: 'Tax', xform: 'direct', status: 'mapped', confidence: 100, required: true },
     { sap: 'tax_code[].tax_percentage', sapType: 'string', sapDesc: 'Tax % (0–100)', dms: 'taxes[].pct', dmsType: 'decimal', dmsDesc: 'Tax pct', xform: 'toDecimal · validate(0–100)', status: 'mapped', confidence: 100, required: true },
     { sap: 'is_packaging_allow', sapType: 'string', sapDesc: 'Y/N or 1/0', dms: 'packaging_allowed', dmsType: 'boolean', dmsDesc: 'Allowed', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
+    { sap: 'channels', sapType: 'string[]', sapDesc: 'Channel codes/names (M2M, multiple)', dms: 'products_channels', dmsType: 'M2M', dmsDesc: 'FK → channels', xform: 'lookup(code|name → id) · replace set', status: 'mapped', confidence: 98, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'delivery-order': [
@@ -324,6 +338,13 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'doc_entry', sapType: 'string(50)', sapDesc: 'SAP doc entry', dms: 'sap_doc_entry', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup · 404 if not found', status: 'mapped', confidence: 100, required: true },
     { sap: 'doc_number_so', sapType: 'string(50)', sapDesc: 'SAP SO #', dms: 'sap_so_number', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string', sapDesc: 'Cancel/Close/Open', dms: 'order_status', dmsType: 'enum', dmsDesc: 'Order state', xform: 'statusMap(Cancel→CANCELLED, Close→CLOSED, Open→OPEN)', status: 'mapped', confidence: 100, required: true },
+  ],
+  'channels': [
+    { sap: 'channel_code', sapType: 'string(50)', sapDesc: 'Channel code (unique)', dms: 'channels.code', dmsType: 'string', dmsDesc: 'Channel code', xform: 'TRIM · unique', status: 'mapped', confidence: 100, required: true },
+    { sap: 'channel_name', sapType: 'string(255)', sapDesc: 'Channel name (unique CI)', dms: 'channels.name', dmsType: 'string', dmsDesc: 'Channel name', xform: 'TRIM', status: 'mapped', confidence: 100, required: true },
+    { sap: 'short_name', sapType: 'string(50)', sapDesc: 'Short name (optional)', dms: 'channels.short_name', dmsType: 'string?', dmsDesc: 'Short name', xform: 'direct', status: 'mapped', confidence: 100, required: false },
+    { sap: 'description', sapType: 'text', sapDesc: 'Description (optional)', dms: 'channels.description', dmsType: 'longtext?', dmsDesc: 'Description', xform: 'direct', status: 'mapped', confidence: 100, required: false },
+    { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
 };
 
@@ -544,6 +565,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "circle_name": "Town X",
   "payment_terms": "Net 30",
   "rate_group": "Standard",
+  "channels": ["GT"],
   "status": "Y",
   "cost_center_master": "CC.100"
 }`,
@@ -672,7 +694,8 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "product_variant_size": 500,
   "tax_code": [
     { "country_name": "Nepal", "tax_name": "VAT", "tax_percentage": "13" }
-  ]
+  ],
+  "channels": ["GT", "MT"]
 }`,
     response: `{
   "id": 4218,
@@ -705,7 +728,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   },
   'price-list': {
     request: `{
-  "rate_group_name": "Standard",
+  "rate_group": "Standard",
   "item_code": "FR0001",
   "container_price": "1585.54",
   "status": "Y"
@@ -778,5 +801,15 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "status": "Y"
 }`,
     response: `{ "id": 1, "name": "Standard", "code": "Standard", "is_active": true, "message": "Created" }`,
+  },
+  'channels': {
+    request: `{
+  "channel_code": "GT",
+  "channel_name": "General Trade",
+  "short_name": "GT",
+  "description": "General trade outlets",
+  "status": "Y"
+}`,
+    response: `{ "id": 9, "name": "General Trade", "code": "GT", "short_name": "GT", "description": "General trade outlets", "is_active": true, "message": "Channel created successfully" }`,
   },
 };

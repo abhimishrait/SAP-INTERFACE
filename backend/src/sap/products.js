@@ -9,7 +9,7 @@ const express = require('express');
 const { pool, withTx } = require('../db');
 const { toBool } = require('../lib/statusMap');
 const { ValidationError, NotFoundError, required, toDecimal } = require('../lib/validate');
-const { findIdByName, defaultProductionLineId } = require('../lib/lookup');
+const { findIdByName, defaultProductionLineId, resolveChannelIds } = require('../lib/lookup');
 const cfg = require('../config');
 
 const router = express.Router();
@@ -261,8 +261,40 @@ async function validateBody(body, { isCreate }) {
     // Title-case so the column reads "Active"/"Inactive" instead of SCREAMING.
     out.status = a ? 'Active' : 'Inactive';
   }
+  // Channels M2M — SAP can send `channels` (array of channel code/name strings)
+  // or the singular `channel_code` / `channel_name`. Resolution + existence
+  // checks happen in resolveChannelIds; if any fails we collect into errors so
+  // the response shape stays the field-keyed map other modules use.
+  const channelInput =
+    body.channels !== undefined ? body.channels
+    : body.channel_codes !== undefined ? body.channel_codes
+    : body.channel_names !== undefined ? body.channel_names
+    : body.channel_code !== undefined ? body.channel_code
+    : body.channel_name !== undefined ? body.channel_name
+    : undefined;
+  if (channelInput !== undefined) {
+    try {
+      out._channel_ids = await resolveChannelIds(channelInput, 'channels');
+    } catch (err) {
+      if (err instanceof ValidationError) Object.assign(errors, err.errors);
+      else throw err;
+    }
+  }
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return out;
+}
+
+// Replace the product's channel M2M set with `channelIds` (idempotent).
+// channelIds: array of channel ids, or null/undefined to skip.
+async function syncProductChannels(conn, productId, channelIds) {
+  if (channelIds === null || channelIds === undefined) return;
+  await conn.query(`DELETE FROM products_channels WHERE product_id = ?`, [productId]);
+  if (channelIds.length) {
+    await conn.query(
+      `INSERT INTO products_channels (product_id, channel_id) VALUES ?`,
+      [channelIds.map(cid => [productId, cid])]
+    );
+  }
 }
 
 router.post('/', async (req, res, next) => {
@@ -275,6 +307,8 @@ router.post('/', async (req, res, next) => {
     const data = await validateBody(req.body, { isCreate: true });
     const productName = String(req.body.product_name).trim();
     const sujalMatrixId = data.sujal_matrix_id;
+    const channelIds = data._channel_ids;
+    delete data._channel_ids;
 
     const out = await withTx(async (conn) => {
       const [r] = await conn.query(
@@ -318,7 +352,15 @@ router.post('/', async (req, res, next) => {
         );
       }
 
-      return { id: productId, sujal_matrix_id: sujalMatrixId || null, zones_mapped: zoneRows.length };
+      // Channels: SAP-driven, not auto-mapped. Skip when the payload didn't include any.
+      await syncProductChannels(conn, productId, channelIds ?? null);
+
+      return {
+        id: productId,
+        sujal_matrix_id: sujalMatrixId || null,
+        zones_mapped: zoneRows.length,
+        channel_ids: channelIds ?? null,
+      };
     });
 
     res.status(201).json({
@@ -338,6 +380,8 @@ router.put('/:id/', async (req, res, next) => {
     const [exists] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
     const data = await validateBody(req.body, { isCreate: false });
+    const channelIds = data._channel_ids;
+    delete data._channel_ids;
 
     const sets = [];
     const params = [];
@@ -355,9 +399,22 @@ router.put('/:id/', async (req, res, next) => {
       sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
       await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, params);
     }
+
+    // Channels: only touch the M2M when the key was in the payload.
+    // `"channels": []` clears all channel assignments.
+    if (channelIds !== undefined) {
+      const conn = await pool.getConnection();
+      try {
+        await syncProductChannels(conn, id, channelIds);
+      } finally {
+        conn.release();
+      }
+    }
+
     res.status(200).json({
       id,
       ...(data.mrp !== undefined ? { mrp: data.mrp } : {}),
+      ...(channelIds !== undefined ? { channel_ids: channelIds } : {}),
       message: 'Updated',
     });
   } catch (e) { next(e); }
