@@ -150,18 +150,26 @@ async function resolveLookups(body) {
       out.reporting_to_id = rows[0].id;
     }
   }
-  // Channels: SAP can send `channels` (array of code/name strings) and/or the
-  // convenience singular `channel_code` / `channel_name`. Resolve all references
-  // to ids; the caller persists into external_user_profiles_channels.
+  // Channels: BP master is single-channel per business rule (the join table
+  // schema allows multiple but the spec says one BP → one channel). Accept
+  // either the canonical singular keys (`channel_name` / `channel_code`) or
+  // the plural form for forward-compat — but reject any payload that resolves
+  // to more than one distinct channel so silent data loss is impossible.
   const channelInput =
-    body.channels !== undefined ? body.channels
+    body.channel_name !== undefined ? body.channel_name
+    : body.channel_code !== undefined ? body.channel_code
+    : body.channels !== undefined ? body.channels
     : body.channel_codes !== undefined ? body.channel_codes
     : body.channel_names !== undefined ? body.channel_names
-    : body.channel_code !== undefined ? body.channel_code
-    : body.channel_name !== undefined ? body.channel_name
     : undefined;
   if (channelInput !== undefined) {
-    out.channel_ids = await resolveChannelIds(channelInput, 'channels');
+    const ids = await resolveChannelIds(channelInput, 'channel_name');
+    if (ids.length > 1) {
+      throw new ValidationError({
+        channel_name: ['Only one channel is allowed per BP — send a single string, not an array of multiple.'],
+      });
+    }
+    out.channel_ids = ids;
   }
 
   if (Object.keys(errors).length) throw new ValidationError(errors);

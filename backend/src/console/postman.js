@@ -42,7 +42,7 @@ const SAMPLES = {
     reporting_to_emp: 'EMP001',
     greater_circle_name: 'Zone A', circle_name: 'Town X',
     payment_terms: 'Net 30', rate_group: 'Standard',
-    channels: ['GT'],
+    channel_name: 'GT',
     status: 'Y', cost_center_master: 'CC.100',
   },
   'blanket-agreement': {
