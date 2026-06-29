@@ -56,7 +56,7 @@ const SAMPLES = {
   'product-name':       { name: 'Fresh Milk', product_class_name: 'Dairy Products', status: 'Y' },
   'payment-terms':      { payment_term_name: 'Net 30', term_days: '30', status: 'Y' },
   'price-list-group':   { name: 'Standard', status: 'Y' },
-  'price-list':         { rate_group: 'Standard', item_code: 'FR0001', container_price: '1585.54', status: 'Y' },
+  'price-list':         { rate_group_name: 'Standard', item_code: 'FR0001', container_price: '1585.54', status: 'Y' },
   'special-price-list': { item_code: 'FR0123', container_price: '1585.54', discount: '10', party_code: 'CUST1000', start_date: '2022-01-01', end_date: '2022-12-31', status: 'Y' },
   'products': {
     product_name: 'SAMPLE PRODUCT', hsn_code: '0401', variant_code: 'SKU001',

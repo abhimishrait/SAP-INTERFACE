@@ -100,7 +100,7 @@ export const MODULES: Module[] = [
     desc: 'Item-level pricing → rate group',
     path: '/sap/price-list/', methods: ['POST', 'PUT'],
     rps: 0.8, errRate: 0.4, kind: 'pricing',
-    rules: ['rate_group + item_code combination must be unique', 'container_price must be valid decimal', 'Status supports Y/N or 1/0'],
+    rules: ['rate_group_name + item_code combination must be unique', 'container_price must be valid decimal', 'Status supports Y/N or 1/0'],
   },
   {
     id: 'special-price-list', code: '3.12', label: 'Special Price List',
@@ -265,7 +265,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
   ],
   'price-list': [
-    { sap: 'rate_group', sapType: 'string(50)', sapDesc: 'Rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
+    { sap: 'rate_group_name', sapType: 'string(50)', sapDesc: 'Rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'item_code', sapType: 'string(20)', sapDesc: 'SKU (must exist)', dms: 'variant_code', dmsType: 'FK', dmsDesc: 'FK → products', xform: 'lookup', status: 'mapped', confidence: 99, required: true },
     { sap: 'container_price', sapType: 'string(20)', sapDesc: 'Unit price', dms: 'container_price', dmsType: 'decimal', dmsDesc: 'Price', xform: 'toDecimal', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
@@ -705,7 +705,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   },
   'price-list': {
     request: `{
-  "rate_group": "Standard",
+  "rate_group_name": "Standard",
   "item_code": "FR0001",
   "container_price": "1585.54",
   "status": "Y"

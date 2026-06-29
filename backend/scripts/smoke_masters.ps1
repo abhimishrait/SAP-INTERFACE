@@ -81,7 +81,7 @@ $pr = Hit "3.13 products POST" "POST" "$base/products/" $prodBody
 
 # 3.11 Price List (needs price-group + product)
 if ($pg -and $pr) {
-  $plBody = @{rate_group="PGSmoke${stamp}_u"; item_code="SKU$stamp"; container_price=99.99; status="Y"} | ConvertTo-Json -Compress
+  $plBody = @{rate_group_name="PGSmoke${stamp}_u"; item_code="SKU$stamp"; container_price=99.99; status="Y"} | ConvertTo-Json -Compress
   Hit "3.11 price-list POST" "POST" "$base/price-list/" $plBody | Out-Null
 }
 
