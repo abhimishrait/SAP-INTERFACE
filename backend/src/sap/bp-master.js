@@ -368,7 +368,7 @@ router.post('/', async (req, res, next) => {
 router.put('/:id/', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const [exists] = await pool.query(`SELECT id, user_id FROM external_user_profiles WHERE id = ? LIMIT 1`, [id]);
+    const [exists] = await pool.query(`SELECT id, user_id, party_code FROM external_user_profiles WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
 
     await validatePayload(req.body, { mode: 'update', partyId: id });
@@ -435,14 +435,22 @@ router.put('/:id/', async (req, res, next) => {
       }
     }
 
-    // Sync user row for name/phone/email changes
+    // Sync user row for name/phone/email changes.
+    // `email` is NOT NULL on users — mirror the POST fallback so an empty
+    // email_id falls back to "<customer_code>@sap.local" instead of NULL.
     const userSets = [];
     const userParams = [];
     for (const [src, dst] of Object.entries({
       first_name: 'first_name', middle_name: 'middle_name', last_name: 'last_name',
-      contact_country_code: 'country_code', contact_number: 'phone', email_id: 'email',
+      contact_country_code: 'country_code', contact_number: 'phone',
     })) {
       if (req.body[src] !== undefined) { userSets.push(`\`${dst}\` = ?`); userParams.push(req.body[src] || null); }
+    }
+    if (req.body.email_id !== undefined) {
+      const trimmed = String(req.body.email_id || '').trim();
+      const customerCode = req.body.customer_code || exists[0].party_code;
+      const email = trimmed || (customerCode ? `${String(customerCode).toLowerCase()}@sap.local` : null);
+      if (email) { userSets.push('`email` = ?'); userParams.push(email); }
     }
     if (userSets.length) {
       userSets.push('updated_at = NOW(6)');
