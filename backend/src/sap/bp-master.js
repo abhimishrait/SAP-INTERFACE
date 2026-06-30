@@ -134,18 +134,29 @@ async function resolveLookups(body) {
     if (!tid) errors.circle_name = [`Town '${body.circle_name}' does not exist.`];
     else out.town_id = tid;
   }
-  // reporting_to_emp → users.id (internal employee that this BP reports to).
-  // SAP now sends the employee CODE; we look it up against users.employee_code
-  // (only `user_type='internal'` is eligible). 400 if the code is unknown so
-  // the integration surfaces the gap instead of silently dropping the link.
+  // reporting_to_emp → external_user_profiles.reporting_to_id (FK → users.id).
+  //
+  // The employee code lives on `internal_user_profiles.employee_code` (UNIQUE),
+  // NOT on `users.employee_code` (which is NULL for every row in this DB). Join
+  // through internal_user_profiles to get the linked users.id, which is what
+  // the FK on external_user_profiles.reporting_to_id targets.
+  //
+  // 400 if the code is unknown so the integration surfaces the gap instead of
+  // silently dropping the link.
   if (body.reporting_to_emp !== undefined && body.reporting_to_emp !== null && body.reporting_to_emp !== '') {
     const code = String(body.reporting_to_emp).trim();
     const [rows] = await pool.query(
-      `SELECT id FROM users WHERE employee_code = ? AND user_type = 'internal' LIMIT 1`,
+      `SELECT u.id
+         FROM internal_user_profiles iup
+         JOIN users u ON u.id = iup.user_id
+        WHERE iup.employee_code = ?
+          AND iup.is_active = 1
+          AND u.user_type = 'internal'
+        LIMIT 1`,
       [code]
     );
     if (!rows.length) {
-      errors.reporting_to_emp = [`Employee code '${code}' does not match any internal user.`];
+      errors.reporting_to_emp = [`Employee code '${code}' does not match any active internal employee.`];
     } else {
       out.reporting_to_id = rows[0].id;
     }
