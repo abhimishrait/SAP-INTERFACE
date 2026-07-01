@@ -1,6 +1,16 @@
 // Invoice Order — SAP pushes the invoice for a sales order already present
-// in DMS (created via SO sync + delivered via delivery-order). We flip the
-// SO's status to INVOICED and stamp the SAP invoice metadata onto it.
+// in DMS (created via SO sync + delivered via delivery-order). The invoice
+// is a document that follows delivery — we do NOT change SO.status. The
+// SO stays 'delivered' (physical business state); the presence of an
+// invoice is signalled to the DMS UI by the sap_invoice_* columns, which
+// the FE uses to gate the "Download Invoice" action button.
+//
+// The DMS side (Django) added these columns in migration
+// 0007_salesorder_invoice_fields — sap_invoice_doc_entry,
+// sap_invoice_number, sap_invoice_date, sap_invoice_due_date,
+// sap_invoice_received_at, sap_invoice_payload. We populate all of them
+// so the SO detail view has everything it needs to render the invoice
+// without another SAP round-trip.
 //
 // Payload shape (from live SAP capture, 2026-07-01):
 //   {
@@ -97,31 +107,65 @@ router.post('/', async (req, res, next) => {
         `doc_date ${req.body.doc_date}; ` +
         `due ${req.body.doc_due_date || '-'}`;
 
+      // SAP invoice fields — parsed once for both the UPDATE and the log.
+      // doc_entry / doc_number here are for the INVOICE (not the SO); SAP
+      // sometimes omits them (e.g. on preview pushes), so we tolerate NULL.
+      const invoiceDocEntry = parseInt(req.body.doc_entry, 10) || null;
+      const invoiceDocNum   = req.body.doc_number ? String(req.body.doc_number) : null;
+      const invoiceDate     = parseDate(req.body.doc_date) || null;
+      const invoiceDueDate  = req.body.doc_due_date ? (parseDate(req.body.doc_due_date) || null) : null;
+
+      // DO NOT change status — the SO stays 'delivered' (the physical
+      // business state). Invoice presence is signalled by the
+      // sap_invoice_* columns, which drive the FE "Download Invoice"
+      // action.
       await conn.query(
         `UPDATE sales_orders SET
-           status           = 'INVOICED',
-           sap_sync_status  = 'SYNCED',
-           sap_synced_at    = NOW(6),
-           sap_synced_by_id = ?,
-           updated_at       = NOW(6),
-           updated_by_id    = ?,
-           remarks          = CONCAT_WS(' | ', NULLIF(remarks, ''), ?)
+           sap_invoice_doc_entry   = ?,
+           sap_invoice_number      = ?,
+           sap_invoice_date        = ?,
+           sap_invoice_due_date    = ?,
+           sap_invoice_received_at = NOW(6),
+           sap_invoice_payload     = ?,
+           sap_sync_status         = 'SYNCED',
+           sap_synced_at           = NOW(6),
+           sap_synced_by_id        = ?,
+           updated_at              = NOW(6),
+           updated_by_id           = ?,
+           remarks                 = CONCAT_WS(' | ', NULLIF(remarks, ''), ?)
          WHERE id = ?`,
-        [cfg.systemUserId, cfg.systemUserId, invoiceRemark, orderId]
+        [
+          invoiceDocEntry,
+          invoiceDocNum,
+          invoiceDate,
+          invoiceDueDate,
+          JSON.stringify(req.body),
+          cfg.systemUserId,
+          cfg.systemUserId,
+          invoiceRemark,
+          orderId,
+        ]
       );
 
-      // Full invoice detail (per-line VAT / OCR / batch / agr_no) isn't stored
-      // in a dedicated table yet — persist the raw payload in sap_sync_logs so
-      // nothing is lost, and we can promote columns later.
+      // Keep the raw payload in sap_sync_logs too — this is the audit
+      // trail that the "SAP Sync Details" modal reads, and it's
+      // independent of the sap_invoice_payload column (which the FE
+      // uses just for the download endpoint).
       await conn.query(
         `INSERT INTO sap_sync_logs
            (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
             request_payload, attempted_at, order_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'SYNCED', ?, ?, ?, NOW(6), ?)`,
-        [parseInt(req.body.doc_entry_so, 10) || null, docNumberSo, JSON.stringify(req.body), orderId]
+        [invoiceDocEntry || parseInt(req.body.doc_entry_so, 10) || null, invoiceDocNum || docNumberSo, JSON.stringify(req.body), orderId]
       );
 
-      return { id: orderId, party_id: so.party_id, lines_count: req.body.invoice_details.length };
+      return {
+        id: orderId,
+        party_id: so.party_id,
+        lines_count: req.body.invoice_details.length,
+        sap_invoice_doc_entry: invoiceDocEntry,
+        sap_invoice_number: invoiceDocNum,
+      };
     });
 
     res.status(200).json({
@@ -129,8 +173,7 @@ router.post('/', async (req, res, next) => {
       card_code: req.body.card_code,
       doc_number_so: req.body.doc_number_so,
       doc_entry_so: req.body.doc_entry_so,
-      status: 'INVOICED',
-      message: 'Invoice recorded on sales order.',
+      message: 'Invoice recorded on sales order (status unchanged; SO remains at its current stage).',
     });
   } catch (e) { next(e); }
 });
