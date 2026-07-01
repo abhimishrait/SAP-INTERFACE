@@ -46,7 +46,8 @@ const SAMPLES = {
     status: 'Y', cost_center_master: 'CC.100',
   },
   'blanket-agreement': {
-    bp_code: 'CUST1001', agreement_method: 'qty', agreement_type: 'general',
+    bp_code: 'CUST1001', agreement_no: 12345,
+    agreement_method: 'qty', agreement_type: 'general',
     start_date: '2026-01-01', end_date: '2026-12-31', status: 'A',
     lines: [{ line_number: 1, item_code: 'FR0001', item_name: 'Fresh Milk 500ml', planned_quantity: '1000', portion_of_returns: '5' }],
   },

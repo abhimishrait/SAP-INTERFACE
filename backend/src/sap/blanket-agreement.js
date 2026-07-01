@@ -25,6 +25,30 @@ function statusToken(v) {
   return a === null ? null : a ? 'A' : 'T';
 }
 
+// Canonical payload key is `agreement_no`. A few aliases are tolerated so old
+// or in-flight SAP payloads don't break; persisted to
+// blanket_agreements.sap_agreement_no (that's the DB column name — kept as-is).
+// Returns:
+//   undefined → key absent (leave column alone on update; NULL on insert)
+//   null      → key present but explicitly empty (clear the column on update)
+//   number    → validated integer to write
+function extractAgreementNo(body) {
+  const raw =
+    body.agreement_no !== undefined ? body.agreement_no
+    : body.sap_agreement_no !== undefined ? body.sap_agreement_no
+    : body.agreement_number !== undefined ? body.agreement_number
+    : body.doc_num !== undefined ? body.doc_num
+    : body.doc_entry !== undefined ? body.doc_entry
+    : undefined;
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new ValidationError({ agreement_no: ['Must be a non-negative integer.'] });
+  }
+  return n;
+}
+
 // Identify the agreement to update. Lookup strategy:
 //   1. URL :id (numeric) — back-compat
 //   2. body.bp_code — finds the BP's most recent agreement regardless of status
@@ -152,6 +176,7 @@ router.post('/', async (req, res, next) => {
 
     const lines = req.body.lines || req.body.blanket_agreement_lines || [];
     await validateLines(lines, normalizedMethod, agreementType);
+    const agreementNo = extractAgreementNo(req.body); // undefined | null | number
 
     const out = await withTx(async (conn) => {
       const [hdr] = await conn.query(
@@ -159,18 +184,18 @@ router.post('/', async (req, res, next) => {
           (uuid, created_at, updated_at, is_active,
            bp_code, bp_name, party_id,
            agreement_method, agreement_type, scheme_name,
-           start_date, end_date, status,
+           start_date, end_date, status, sap_agreement_no,
            created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, ?,
                  ?, ?, ?,
-                 ?, ?, ?,
+                 ?, ?, ?, ?,
                  ?, ?)`,
         [
           statusCode === 'A' ? 1 : 0,
           req.body.bp_code, req.body.bp_name || req.body.bp_code, partyId,
           normalizedMethod, agreementType, req.body.scheme_name || null,
-          start, end, statusCode,
+          start, end, statusCode, agreementNo ?? null,
           cfg.systemUserId, cfg.systemUserId,
         ]
       );
@@ -185,6 +210,7 @@ router.post('/', async (req, res, next) => {
       method: normalizedMethod,
       agreement_type: agreementType,
       status: statusCode,
+      agreement_no: agreementNo ?? null,
       lines_count: lines.length,
       message: 'Blanket Agreement created successfully',
     });
@@ -218,6 +244,13 @@ async function updateHandler(req, res, next) {
     }
     if (req.body.scheme_name !== undefined) { sets.push('scheme_name = ?'); params.push(req.body.scheme_name); }
     if (req.body.bp_name !== undefined) { sets.push('bp_name = ?'); params.push(req.body.bp_name); }
+    // SAP agreement number — canonical key is `agreement_no`, persisted to
+    // the sap_agreement_no column. undefined = key absent (skip),
+    // null = explicit clear, number = write.
+    const agreementNo = extractAgreementNo(req.body);
+    if (agreementNo !== undefined) {
+      sets.push('sap_agreement_no = ?'); params.push(agreementNo);
+    }
     // If client passed both, sanity-check the range.
     if (req.body.start_date !== undefined && req.body.end_date !== undefined) {
       const s = parseDate(req.body.start_date);

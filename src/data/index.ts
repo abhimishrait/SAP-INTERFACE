@@ -227,6 +227,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
   'blanket-agreement': [
     { sap: 'bp_code', sapType: 'string(20)', sapDesc: 'BP customer code', dms: 'bp_code', dmsType: 'FK', dmsDesc: 'FK → bp_master', xform: 'lookup', status: 'mapped', confidence: 100, required: true },
     { sap: 'bp_name', sapType: 'string(255)', sapDesc: 'BP name (denormalized)', dms: 'bp_name', dmsType: 'string', dmsDesc: 'Snapshot', xform: 'direct', status: 'mapped', confidence: 100, required: true },
+    { sap: 'agreement_no', sapType: 'int', sapDesc: 'SAP agreement number (optional)', dms: 'sap_agreement_no', dmsType: 'int?', dmsDesc: 'SAP agreement #', xform: 'parseInt · validate(≥0)', status: 'mapped', confidence: 100, required: false },
     { sap: 'agreement_method', sapType: 'object', sapDesc: 'qty / financial', dms: 'method', dmsType: 'enum', dmsDesc: 'QUANT / FIN', xform: 'enumMap', status: 'mapped', confidence: 100, required: true },
     { sap: 'agreement_type', sapType: 'string', sapDesc: 'general / specific', dms: 'agreement_type', dmsType: 'enum?', dmsDesc: 'general/specific', xform: 'enumMap', status: 'mapped', confidence: 100, required: false },
     { sap: 'scheme_name', sapType: 'string(255)', sapDesc: 'Agreement name', dms: 'scheme_name', dmsType: 'string?', dmsDesc: 'Scheme', xform: 'direct', status: 'mapped', confidence: 100, required: false },
@@ -586,6 +587,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   'blanket-agreement': {
     request: `{
   "bp_code": "CUST1001",
+  "agreement_no": 12345,
   "agreement_method": "qty",
   "agreement_type": "general",
   "start_date": "2026-01-01",
@@ -607,6 +609,7 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "method": "QUANT",
   "agreement_type": "general",
   "status": "Approved",
+  "agreement_no": 12345,
   "lines_count": 1,
   "created_at": "2026-05-22T11:42:18.401+05:45"
 }`,
