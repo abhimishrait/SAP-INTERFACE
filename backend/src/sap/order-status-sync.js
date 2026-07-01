@@ -29,7 +29,7 @@ router.put('/', async (req, res, next) => {
       await conn.query(
         `UPDATE sales_orders
             SET status = ?, updated_at = NOW(6), updated_by_id = ?,
-                sap_synced_at = NOW(6), sap_synced_by_id = ?, sap_sync_status = 'SYNCED'
+                sap_synced_at = NOW(6), sap_synced_by_id = ?, sap_sync_status = 'synced'
           WHERE id = ?`,
         [newStatus, cfg.systemUserId, cfg.systemUserId, order.id]
       );

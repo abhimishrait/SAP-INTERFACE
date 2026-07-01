@@ -127,7 +127,7 @@ router.post('/', async (req, res, next) => {
            sap_invoice_due_date    = ?,
            sap_invoice_received_at = NOW(6),
            sap_invoice_payload     = ?,
-           sap_sync_status         = 'SYNCED',
+           sap_sync_status         = 'synced',
            sap_synced_at           = NOW(6),
            sap_synced_by_id        = ?,
            updated_at              = NOW(6),
@@ -151,11 +151,14 @@ router.post('/', async (req, res, next) => {
       // trail that the "SAP Sync Details" modal reads, and it's
       // independent of the sap_invoice_payload column (which the FE
       // uses just for the download endpoint).
+      // NOTE: sap_sync_logs.status choices in Django are ('success',
+       //       'failed') — NOT ('synced', 'not_synced'). Those choices
+       //       apply to sales_orders.sap_sync_status only.
       await conn.query(
         `INSERT INTO sap_sync_logs
            (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
             request_payload, attempted_at, order_id)
-         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'SYNCED', ?, ?, ?, NOW(6), ?)`,
+         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'success', ?, ?, ?, NOW(6), ?)`,
         [invoiceDocEntry || parseInt(req.body.doc_entry_so, 10) || null, invoiceDocNum || docNumberSo, JSON.stringify(req.body), orderId]
       );
 

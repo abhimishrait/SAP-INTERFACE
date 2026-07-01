@@ -1,6 +1,9 @@
 // 3.14 Delivery Order → sales_orders + order_items.
-// SAP delivers; we create a sales order in DMS with status 'DELIVERED' (closest existing token),
-// and stamp the SAP doc references so the order can be reconciled.
+// SAP delivers; we flip the SO to status 'delivered' (matches Django's
+// lowercase STATUS_CHOICES token) and stamp the SAP doc references so the
+// order can be reconciled. Keeping the value lowercase is important — the
+// DMS FE lowercases before matching, so writing 'DELIVERED' silently
+// falls through to the default (grey / empty) pill styling.
 const express = require('express');
 const { pool, withTx } = require('../db');
 const { ValidationError, NotFoundError, required, parseDate, toDecimal } = require('../lib/validate');
@@ -117,12 +120,12 @@ router.post('/', async (req, res, next) => {
         await conn.query(
           `UPDATE sales_orders SET
              order_date         = ?,
-             status             = 'DELIVERED',
+             status             = 'delivered',
              subtotal           = ?,
              tax_amount         = ?,
              total_amount       = ?,
              sap_doc_entry      = ?,
-             sap_sync_status    = 'SYNCED',
+             sap_sync_status    = 'synced',
              sap_synced_at      = NOW(6),
              sap_synced_by_id   = ?,
              updated_at         = NOW(6),
@@ -154,15 +157,119 @@ router.post('/', async (req, res, next) => {
 
       const lines = await insertOrderItems(conn, orderId, req.body.do_details);
 
+      // ── delivery_orders header + lines ────────────────────────
+      // The DMS FE reads has_delivery_order via
+      //   SalesOrder.delivery_orders.exists()
+      // to gate the "Download DO" action, and the /do-download/
+      // endpoint reads DO + DO lines to render the Sujal template.
+      // If we skip these tables, the SO looks delivered but the
+      // download button never appears. Upsert both here.
+      const [doExisting] = await conn.query(
+        `SELECT id, stock_transaction_id FROM delivery_orders WHERE sap_do_entry = ? LIMIT 1`,
+        [String(req.body.do_entry)]
+      );
+
+      let deliveryOrderId;
+      if (doExisting.length) {
+        // Replace-all semantics on repeat push
+        deliveryOrderId = doExisting[0].id;
+        await conn.query(`DELETE FROM delivery_order_lines WHERE delivery_order_id = ?`, [deliveryOrderId]);
+        await conn.query(
+          `UPDATE delivery_orders SET
+             updated_at            = NOW(6),
+             updated_by_id         = ?,
+             order_id              = ?,
+             sap_do_number         = ?,
+             sap_doc_entry         = ?,
+             sap_doc_number_so     = ?,
+             invoice_number        = ?,
+             do_date               = ?,
+             do_amount             = ?,
+             do_tax                = ?,
+             do_total              = ?,
+             production_unit_name  = ?
+           WHERE id = ?`,
+          [
+            cfg.systemUserId,
+            orderId,
+            String(req.body.do_number),
+            String(req.body.doc_entry || ''),
+            docNumberSo,
+            req.body.invoice_number || null,
+            parseDate(req.body.do_date),
+            toDecimal(req.body.do_amount),
+            toDecimal(req.body.do_tax),
+            toDecimal(req.body.do_total),
+            String(req.body.production_unit || ''),
+            deliveryOrderId,
+          ]
+        );
+      } else {
+        const [ins] = await conn.query(
+          `INSERT INTO delivery_orders
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id,
+              sap_do_entry, sap_do_number,
+              order_id, sap_doc_entry, sap_doc_number_so,
+              invoice_number, do_date, do_amount, do_tax, do_total,
+              production_unit_name)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?,
+                   ?, ?,
+                   ?, ?, ?,
+                   ?, ?, ?, ?, ?,
+                   ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId,
+            String(req.body.do_entry), String(req.body.do_number),
+            orderId, String(req.body.doc_entry || ''), docNumberSo,
+            req.body.invoice_number || null,
+            parseDate(req.body.do_date),
+            toDecimal(req.body.do_amount),
+            toDecimal(req.body.do_tax),
+            toDecimal(req.body.do_total),
+            String(req.body.production_unit || ''),
+          ]
+        );
+        deliveryOrderId = ins.insertId;
+      }
+
+      // Insert DO lines — one row per do_details entry.
+      for (const d of req.body.do_details) {
+        const productId = await findProductIdBySku(d.item_code);
+        if (!productId) throw new ValidationError({
+          do_details: [`Product '${d.item_code}' does not exist.`],
+        });
+        await conn.query(
+          `INSERT INTO delivery_order_lines
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id,
+              delivery_order_id, item_code, product_id,
+              rate, quantity, uom, amount,
+              batch_number, mfg_date, expiry_date)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?,
+                   ?, ?, ?,
+                   ?, ?, ?, ?,
+                   ?, ?, ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId,
+            deliveryOrderId, d.item_code, productId,
+            toDecimal(d.rate), toDecimal(d.quantity), d.uom || 'CTN', toDecimal(d.amount),
+            d.batch_number || null, parseDate(d.mfg_date), parseDate(d.expiry_date),
+          ]
+        );
+      }
+
       await conn.query(
         `INSERT INTO sap_sync_logs
           (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
            request_payload, attempted_at, order_id)
-         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'SYNCED', ?, ?, ?, NOW(6), ?)`,
+         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'success', ?, ?, ?, NOW(6), ?)`,
         [docEntry, docNumberSo, JSON.stringify(req.body), orderId]
       );
 
-      return { id: orderId, mode, party_id: existing[0].party_id, lines };
+      return { id: orderId, mode, party_id: existing[0].party_id, lines, delivery_order_id: deliveryOrderId };
     });
 
     res.status(out.mode === 'updated' ? 200 : 201).json({

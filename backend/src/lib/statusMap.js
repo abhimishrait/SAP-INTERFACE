@@ -12,13 +12,15 @@ function toBool(v) {
 }
 
 // Order Status Sync (3.16) — normalize to DMS sales_orders.status enum.
-// The DMS uses uppercase tokens (DRAFT/SUBMITTED/APPROVED/CANCELLED/CLOSED/...);
-// we only handle the three SAP-driven transitions here.
+// The DMS uses LOWERCASE tokens (draft/initiated/forwarded/approved/
+// partially_delivered/delivered/closed/cancelled) — see
+// apps.orders.models.SalesOrder.STATUS_CHOICES. Writing uppercase
+// silently falls through to grey / default pill styling in the FE.
 function toOrderStatus(v) {
   const s = String(v ?? '').trim().toUpperCase();
-  if (['CANCEL', 'CANCELLED', 'CANCELED'].includes(s)) return 'CANCELLED';
-  if (['CLOSE', 'CLOSED', 'COMPLETED'].includes(s)) return 'CLOSED';
-  if (['OPEN', 'PENDING', 'APPROVED'].includes(s)) return 'APPROVED';
+  if (['CANCEL', 'CANCELLED', 'CANCELED'].includes(s)) return 'cancelled';
+  if (['CLOSE', 'CLOSED', 'COMPLETED'].includes(s)) return 'closed';
+  if (['OPEN', 'PENDING', 'APPROVED'].includes(s)) return 'approved';
   return null;
 }
 
