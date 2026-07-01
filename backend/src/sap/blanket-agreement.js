@@ -27,12 +27,15 @@ function statusToken(v) {
 
 // Payload key is `agreement_no`; persisted to blanket_agreements.sap_agreement_no
 // (the DB column name is kept as-is even though the payload key is shorter).
+// We also tolerate `aggrement_no` (missing "e") because SAP is currently
+// sending the misspelled form in production — logs 6958 and 6993 both used
+// it. Once SAP is fixed upstream we can drop the alias.
 // Returns:
 //   undefined → key absent (leave column alone on update; NULL on insert)
 //   null / '' → explicit clear (write NULL)
 //   number    → validated non-negative integer
 function extractAgreementNo(body) {
-  const raw = body.agreement_no;
+  const raw = body.agreement_no !== undefined ? body.agreement_no : body.aggrement_no;
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
   const n = Number(raw);
