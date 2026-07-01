@@ -367,9 +367,34 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id/', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    const [exists] = await pool.query(`SELECT id, user_id, party_code FROM external_user_profiles WHERE id = ? LIMIT 1`, [id]);
+    // SAP sometimes hits the same /sap/bp-master/<id>/ URL for different BPs,
+    // putting the actual customer_code in the body. Trusting only the URL id
+    // would either overwrite the wrong BP or (as we've seen) 400 with
+    // "customer_code / contact_number already exists" because the body's data
+    // belongs to a different profile. Prefer body.customer_code when present,
+    // fall back to URL id otherwise. Same forgiveness as products PUT /
+    // blanket-agreement's resolveAgreementId.
+    let exists = [];
+    const bodyCode = req.body && req.body.customer_code
+      ? String(req.body.customer_code).trim()
+      : '';
+    if (bodyCode) {
+      [exists] = await pool.query(
+        `SELECT id, user_id, party_code FROM external_user_profiles WHERE party_code = ? LIMIT 1`,
+        [bodyCode]
+      );
+    }
+    if (!exists.length) {
+      const fromUrl = Number(req.params.id);
+      if (Number.isInteger(fromUrl) && fromUrl > 0) {
+        [exists] = await pool.query(
+          `SELECT id, user_id, party_code FROM external_user_profiles WHERE id = ? LIMIT 1`,
+          [fromUrl]
+        );
+      }
+    }
     if (!exists.length) throw new NotFoundError();
+    const id = exists[0].id;
 
     await validatePayload(req.body, { mode: 'update', partyId: id });
 

@@ -376,9 +376,27 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id/', async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    const [exists] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [id]);
-    if (!exists.length) throw new NotFoundError();
+    // SAP sometimes hits the same /sap/products/<id>/ URL for many products,
+    // putting the actual SKU in `variant_code` in the body. Trusting only the
+    // URL id would overwrite the wrong product. Prefer body.variant_code when
+    // present, fall back to URL id otherwise. Same forgiveness pattern as
+    // blanket-agreement.js's resolveAgreementId.
+    let id = null;
+    const bodySku = req.body && req.body.variant_code
+      ? String(req.body.variant_code).trim().toUpperCase()
+      : '';
+    if (bodySku) {
+      const [bySku] = await pool.query(`SELECT id FROM products WHERE sku_code = ? LIMIT 1`, [bodySku]);
+      if (bySku[0]) id = bySku[0].id;
+    }
+    if (!id) {
+      const fromUrl = Number(req.params.id);
+      if (Number.isInteger(fromUrl) && fromUrl > 0) {
+        const [byId] = await pool.query(`SELECT id FROM products WHERE id = ? LIMIT 1`, [fromUrl]);
+        if (byId[0]) id = byId[0].id;
+      }
+    }
+    if (!id) throw new NotFoundError();
     const data = await validateBody(req.body, { isCreate: false });
     const channelIds = data._channel_ids;
     delete data._channel_ids;
