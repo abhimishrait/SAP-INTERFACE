@@ -23,6 +23,7 @@ const MODULES = [
   { id: 'delivery-order',       code: '3.14', label: 'Delivery Order',         methods: ['POST', 'PUT'] },
   { id: 'balance-status-update',code: '3.15', label: 'Balance Status Update',  methods: ['PUT'] },
   { id: 'order-status-sync',    code: '3.16', label: 'Order Status Sync',      methods: ['PUT'] },
+  { id: 'invoice-order',        code: 'EXT',  label: 'Invoice Order',          methods: ['POST'] },
   { id: 'channels',             code: 'EXT',  label: 'Channels',               methods: ['POST', 'PUT'] },
 ];
 
@@ -85,6 +86,21 @@ const SAMPLES = {
   },
   'balance-status-update': { party_code: 'PARTY001', updated_amount: 1500.5 },
   'order-status-sync':     { doc_entry: 'DOC001', doc_number_so: 'DOC-SO-001', status: 'Cancel' },
+  'invoice-order': {
+    card_code: '600032447', card_name: 'S.K. STORES',
+    doc_date: '2026-07-01', doc_due_date: '2026-07-31', tax_date: '2026-07-01',
+    comments: 'SO-2026-0008 Based On Sales Orders 4786. Based On Deliveries 3175.',
+    group_num: 5,
+    doc_entry_so: '23047', doc_number_so: '4786',
+    invoice_details: [{
+      line_number: 0, item_code: 'FG102010',
+      quantity: 100.0, price: 1536.38,
+      line_total: 153638.0, line_total_with_tax: 153638.0,
+      vat_group: 'VAT-13', ocr_code: 'BAG 1', cogs_ocr_code: 'BAG 1',
+      agr_no: 35247, batch_number: 'STORE100',
+      mfg_date: '1899-12-30', expiry_date: '2028-07-02',
+    }],
+  },
   'channels': {
     channel_code: 'GT', channel_name: 'General Trade',
     short_name: 'GT', description: 'General trade outlets',
@@ -132,7 +148,7 @@ router.get('/', (req, res) => {
   const baseUrl = req.query.base || `http://localhost:${cfg.port}`;
   // Group by spec category (master / transactional) for cleaner Postman folders.
   const masterIds = new Set(['bp-master','blanket-agreement','greater-circles','circles','container','matrix','product-class','product-name','payment-terms','price-list-group','price-list','special-price-list','products','channels']);
-  const txnIds    = new Set(['delivery-order','balance-status-update','order-status-sync']);
+  const txnIds    = new Set(['delivery-order','invoice-order','balance-status-update','order-status-sync']);
 
   const masters = MODULES.filter(m => masterIds.has(m.id));
   const txns    = MODULES.filter(m => txnIds.has(m.id));

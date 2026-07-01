@@ -164,6 +164,19 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    id: 'invoice-order', code: 'EXT', label: 'Invoice Order',
+    desc: 'SAP invoice → SO status = INVOICED',
+    path: '/sap/invoice-order/', methods: ['POST'],
+    rps: 0.2, errRate: 0.3, kind: 'transaction',
+    rules: [
+      'doc_number_so must reference an existing sales order (404 otherwise)',
+      'card_code must match the sales order\'s linked BP',
+      'invoice_details must be a non-empty list with item_code, quantity > 0, price ≥ 0',
+      'Dates (doc_date, doc_due_date, tax_date) must be YYYY-MM-DD',
+      'On success: sales_orders.status → INVOICED, remarks appended with invoice metadata',
+    ],
+  },
+  {
     id: 'channels', code: 'EXT', label: 'Channels',
     desc: 'Sales channel master (GT, MT, HoReCa…)',
     path: '/sap/channels/', methods: ['POST', 'PUT'],
@@ -339,6 +352,26 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'doc_entry', sapType: 'string(50)', sapDesc: 'SAP doc entry', dms: 'sap_doc_entry', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup · 404 if not found', status: 'mapped', confidence: 100, required: true },
     { sap: 'doc_number_so', sapType: 'string(50)', sapDesc: 'SAP SO #', dms: 'sap_so_number', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string', sapDesc: 'Cancel/Close/Open', dms: 'order_status', dmsType: 'enum', dmsDesc: 'Order state', xform: 'statusMap(Cancel→CANCELLED, Close→CLOSED, Open→OPEN)', status: 'mapped', confidence: 100, required: true },
+  ],
+  'invoice-order': [
+    { sap: 'card_code',     sapType: 'string(20)',  sapDesc: 'BP code (must match SO party)', dms: 'external_user_profiles.party_code', dmsType: 'FK', dmsDesc: 'SO.party_id', xform: 'lookup · validate matches SO', status: 'mapped', confidence: 100, required: true },
+    { sap: 'card_name',     sapType: 'string(255)', sapDesc: 'BP display name',              dms: '—',              dmsType: '—',         dmsDesc: 'Not persisted',      xform: 'ignored',                   status: 'mapped', confidence: 100, required: false },
+    { sap: 'doc_date',      sapType: 'string',      sapDesc: 'Invoice date (YYYY-MM-DD)',    dms: 'sales_orders.remarks', dmsType: 'text', dmsDesc: 'Stamped into remarks', xform: 'parseISO8601',            status: 'mapped', confidence: 100, required: true },
+    { sap: 'doc_due_date',  sapType: 'string',      sapDesc: 'Due date (YYYY-MM-DD)',        dms: 'sales_orders.remarks', dmsType: 'text', dmsDesc: 'Stamped into remarks', xform: 'parseISO8601',            status: 'mapped', confidence: 100, required: false },
+    { sap: 'tax_date',      sapType: 'string',      sapDesc: 'Tax date',                     dms: '—',              dmsType: '—',         dmsDesc: 'sap_sync_logs only',  xform: 'log-only',                  status: 'review', confidence: 70,  required: false },
+    { sap: 'comments',      sapType: 'string',      sapDesc: 'Freeform note',                dms: '—',              dmsType: '—',         dmsDesc: 'sap_sync_logs only',  xform: 'log-only',                  status: 'review', confidence: 70,  required: false },
+    { sap: 'group_num',     sapType: 'int',         sapDesc: 'SAP group number',             dms: '—',              dmsType: '—',         dmsDesc: 'sap_sync_logs only',  xform: 'log-only',                  status: 'review', confidence: 70,  required: false },
+    { sap: 'doc_entry_so',  sapType: 'string(50)',  sapDesc: 'SAP SO doc entry',             dms: 'sales_orders.sap_doc_entry', dmsType: 'int?', dmsDesc: 'SO SAP entry', xform: 'parseInt',                  status: 'mapped', confidence: 100, required: false },
+    { sap: 'doc_number_so', sapType: 'string(50)',  sapDesc: 'SAP SO number (lookup key)',   dms: 'sales_orders.sap_order_number', dmsType: 'FK', dmsDesc: 'SO lookup', xform: 'lookup · 404 if missing',      status: 'mapped', confidence: 100, required: true },
+    { sap: 'invoice_details[].item_code',    sapType: 'string', sapDesc: 'SKU',                    dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 70,  required: true },
+    { sap: 'invoice_details[].quantity',     sapType: 'decimal', sapDesc: 'Qty (> 0)',             dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 70,  required: true },
+    { sap: 'invoice_details[].price',        sapType: 'decimal', sapDesc: 'Unit price (≥ 0)',      dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 70,  required: true },
+    { sap: 'invoice_details[].vat_group',    sapType: 'string',  sapDesc: 'VAT group',             dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 60,  required: false },
+    { sap: 'invoice_details[].ocr_code',     sapType: 'string',  sapDesc: 'Cost center',           dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 60,  required: false },
+    { sap: 'invoice_details[].agr_no',       sapType: 'int',     sapDesc: 'Blanket agreement no',  dms: 'blanket_agreements.sap_agreement_no', dmsType: 'int?', dmsDesc: 'Link',   xform: 'log-only (future FK)', status: 'review', confidence: 60,  required: false },
+    { sap: 'invoice_details[].batch_number', sapType: 'string',  sapDesc: 'Batch',                 dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 60,  required: false },
+    { sap: 'invoice_details[].mfg_date',     sapType: 'string',  sapDesc: 'Mfg date',              dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 60,  required: false },
+    { sap: 'invoice_details[].expiry_date',  sapType: 'string',  sapDesc: 'Expiry date',           dms: '—',              dmsType: '—', dmsDesc: 'sap_sync_logs only',   xform: 'log-only',            status: 'review', confidence: 60,  required: false },
   ],
   'channels': [
     { sap: 'channel_code', sapType: 'string(50)', sapDesc: 'Channel code (unique)', dms: 'channels.code', dmsType: 'string', dmsDesc: 'Channel code', xform: 'TRIM · unique', status: 'mapped', confidence: 100, required: true },
@@ -814,5 +847,45 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "status": "Y"
 }`,
     response: `{ "id": 9, "name": "General Trade", "code": "GT", "short_name": "GT", "description": "General trade outlets", "is_active": true, "message": "Channel created successfully" }`,
+  },
+  'invoice-order': {
+    request: `{
+  "card_code": "600032447",
+  "card_name": "S.K. STORES",
+  "doc_date": "2026-07-01",
+  "doc_due_date": "2026-07-31",
+  "tax_date": "2026-07-01",
+  "comments": "SO-2026-0008 Based On Sales Orders 4786. Based On Deliveries 3175.",
+  "group_num": 5,
+  "doc_entry_so": "23047",
+  "doc_number_so": "4786",
+  "invoice_details": [
+    {
+      "line_number": 0,
+      "item_code": "FG102010",
+      "quantity": 100.0,
+      "price": 1536.38,
+      "line_total": 153638.0,
+      "line_total_with_tax": 153638.0,
+      "vat_group": "VAT-13",
+      "ocr_code": "BAG 1",
+      "cogs_ocr_code": "BAG 1",
+      "agr_no": 35247,
+      "batch_number": "STORE100",
+      "mfg_date": "1899-12-30",
+      "expiry_date": "2028-07-02"
+    }
+  ]
+}`,
+    response: `{
+  "id": 50,
+  "party_id": 770,
+  "lines_count": 1,
+  "card_code": "600032447",
+  "doc_number_so": "4786",
+  "doc_entry_so": "23047",
+  "status": "INVOICED",
+  "message": "Invoice recorded on sales order."
+}`,
   },
 };

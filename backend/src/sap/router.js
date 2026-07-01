@@ -16,6 +16,7 @@ router.use('/price-list',           require('./price-list'));             // 3.1
 router.use('/special-price-list',   require('./special-price-list'));     // 3.12
 router.use('/products',             require('./products'));               // 3.13
 router.use('/delivery-order',       require('./delivery-order'));         // 3.14
+router.use('/invoice-order',        require('./invoice-order'));          // invoice → SO status=INVOICED
 router.use('/balance-status-update', require('./balance-status-update')); // 3.15
 router.use('/order-status-sync',    require('./order-status-sync'));      // 3.16
 router.use('/channels',             require('./channels'));                // master
