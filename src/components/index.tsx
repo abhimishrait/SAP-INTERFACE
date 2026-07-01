@@ -52,14 +52,27 @@ export function PulseDot({ color = 'var(--teal)' }: { color?: string }) {
 }
 
 export function highlightJson(src: string): string {
-  return src
-    .replace(/(&)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/("(?:\\.|[^"\\])*")(\s*:)/g, '<span class="tok-key">$1</span><span class="tok-punc">$2</span>')
-    .replace(/("(?:\\.|[^"\\])*")(?!\s*:)/g, '<span class="tok-str">$1</span>')
-    .replace(/\b(\d+\.?\d*)\b/g, '<span class="tok-num">$1</span>')
-    .replace(/\b(true|false)\b/g, '<span class="tok-bool">$1</span>')
-    .replace(/\bnull\b/g, '<span class="tok-null">null</span>')
-    .replace(/([{}\[\],])/g, '<span class="tok-punc">$1</span>');
+  // Escape first, then do ALL token replacements in a single pass so the
+  // injected `<span class="tok-*">` markup isn't re-scanned by later
+  // passes — otherwise the class-name strings ("tok-key", "tok-punc"…)
+  // get matched by the string regex and the output becomes broken HTML
+  // that renders as literal `"tok-key">"card_code"…` text.
+  const escaped = src
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped.replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+\.?\d*)|([{}\[\],])/g,
+    (_m, str, colon, kw, num, punct) => {
+      if (str !== undefined) {
+        return colon
+          ? `<span class="tok-key">${str}</span><span class="tok-punc">${colon}</span>`
+          : `<span class="tok-str">${str}</span>`;
+      }
+      if (kw) return `<span class="tok-${kw === 'null' ? 'null' : 'bool'}">${kw}</span>`;
+      if (num !== undefined) return `<span class="tok-num">${num}</span>`;
+      if (punct) return `<span class="tok-punc">${punct}</span>`;
+      return _m;
+    }
+  );
 }
 
 export function JsonBlock({ src, style }: { src: string; style?: React.CSSProperties }) {

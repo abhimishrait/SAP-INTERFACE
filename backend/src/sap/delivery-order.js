@@ -261,6 +261,158 @@ router.post('/', async (req, res, next) => {
         );
       }
 
+      // ── Auto stock-in on the dealer + StockLevel increment ─────────
+      // The DMS FE's My Inventory report reads directly from stock_levels
+      // (party × product × batch → current_quantity). Without this block
+      // the SO shows Delivered but the dealer's inventory never moves.
+      //
+      // On a re-push of the same DO (sap_do_entry match), we reverse the
+      // prior stock-in first: decrement stock_levels for each item then
+      // delete the transaction rows. Then insert fresh transaction +
+      // items and re-increment stock_levels. Keeps replays idempotent.
+      const partyId = existing[0].party_id;
+
+      // Reverse prior stock_transaction linked to this DO (if any).
+      const [priorTxn] = await conn.query(
+        `SELECT stock_transaction_id FROM delivery_orders WHERE id = ? LIMIT 1`,
+        [deliveryOrderId]
+      );
+      const priorTxnId = priorTxn[0]?.stock_transaction_id || null;
+      if (priorTxnId) {
+        const [priorItems] = await conn.query(
+          `SELECT product_id, batch_number, quantity FROM stock_transaction_items WHERE stock_transaction_id = ?`,
+          [priorTxnId]
+        );
+        for (const it of priorItems) {
+          await conn.query(
+            `UPDATE stock_levels
+                SET current_quantity = GREATEST(current_quantity - ?, 0),
+                    updated_at = NOW(6)
+              WHERE party_id = ? AND product_id = ? AND batch_number = ?`,
+            [it.quantity, partyId, it.product_id, it.batch_number || '']
+          );
+        }
+        await conn.query(`UPDATE delivery_orders SET stock_transaction_id = NULL WHERE id = ?`, [deliveryOrderId]);
+        await conn.query(`DELETE FROM stock_transaction_items WHERE stock_transaction_id = ?`, [priorTxnId]);
+        await conn.query(`DELETE FROM stock_transactions WHERE id = ?`, [priorTxnId]);
+      }
+
+      // Generate the next SI-YYYY-XXXX transaction number.
+      const year = new Date().getFullYear();
+      const prefix = `SI-${year}-`;
+      const [lastTxn] = await conn.query(
+        `SELECT transaction_number FROM stock_transactions
+          WHERE transaction_number LIKE ?
+          ORDER BY transaction_number DESC LIMIT 1`,
+        [`${prefix}%`]
+      );
+      const lastSeq = lastTxn[0]
+        ? parseInt(String(lastTxn[0].transaction_number).split('-').pop(), 10) || 0
+        : 0;
+      const txnNumber = `${prefix}${String(lastSeq + 1).padStart(4, '0')}`;
+
+      const [txnInsert] = await conn.query(
+        `INSERT INTO stock_transactions
+           (uuid, created_at, updated_at, is_active,
+            created_by_id, updated_by_id,
+            transaction_number, transaction_type, transaction_date,
+            order_id, party_id,
+            grn_number, invoice_number, invoice_date,
+            remarks)
+         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                 ?, ?,
+                 ?, 'stock_in', ?,
+                 ?, ?,
+                 ?, ?, ?,
+                 ?)`,
+        [
+          cfg.systemUserId, cfg.systemUserId,
+          txnNumber, parseDate(req.body.do_date),
+          orderId, partyId,
+          String(req.body.do_number),
+          req.body.invoice_number || null, parseDate(req.body.do_date),
+          `Auto stock-in from SAP DO ${req.body.do_number}`,
+        ]
+      );
+      const stockTxnId = txnInsert.insertId;
+
+      // Insert items + increment stock_levels per line.
+      for (const d of req.body.do_details) {
+        const productId = await findProductIdBySku(d.item_code);
+        if (!productId) continue;  // already validated above; safe fallback
+        const qty = Math.round(toDecimal(d.quantity));
+        const batch = d.batch_number || '';
+        const uom = d.uom || 'CTN';
+        const mfg = parseDate(d.mfg_date);
+        const exp = parseDate(d.expiry_date);
+
+        await conn.query(
+          `INSERT INTO stock_transaction_items
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id,
+              stock_transaction_id, product_id,
+              batch_number, uom, quantity,
+              manufacturing_date, expiry_date)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?, ?, ?,
+                   ?, ?, ?,
+                   ?, ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId,
+            stockTxnId, productId,
+            batch, uom, qty,
+            mfg, exp,
+          ]
+        );
+
+        // Upsert stock_levels — unique on (party, product, batch).
+        // Existing row: current_quantity += qty, refresh dates. New row: insert with qty.
+        const [existingSL] = await conn.query(
+          `SELECT id, current_quantity FROM stock_levels
+            WHERE party_id = ? AND product_id = ? AND batch_number = ? LIMIT 1`,
+          [partyId, productId, batch]
+        );
+        if (existingSL.length) {
+          await conn.query(
+            `UPDATE stock_levels SET
+               current_quantity = current_quantity + ?,
+               last_stock_in_date = ?,
+               manufacturing_date = COALESCE(manufacturing_date, ?),
+               expiry_date        = COALESCE(expiry_date, ?),
+               updated_at = NOW(6),
+               updated_by_id = ?
+             WHERE id = ?`,
+            [qty, parseDate(req.body.do_date), mfg, exp, cfg.systemUserId, existingSL[0].id]
+          );
+        } else {
+          await conn.query(
+            `INSERT INTO stock_levels
+               (uuid, created_at, updated_at, is_active,
+                created_by_id, updated_by_id,
+                party_id, product_id, batch_number, uom,
+                current_quantity,
+                manufacturing_date, expiry_date, last_stock_in_date)
+             VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                     ?, ?,
+                     ?, ?, ?, ?,
+                     ?,
+                     ?, ?, ?)`,
+            [
+              cfg.systemUserId, cfg.systemUserId,
+              partyId, productId, batch, uom,
+              qty,
+              mfg, exp, parseDate(req.body.do_date),
+            ]
+          );
+        }
+      }
+
+      // Link the stock transaction back to the delivery order.
+      await conn.query(
+        `UPDATE delivery_orders SET stock_transaction_id = ? WHERE id = ?`,
+        [stockTxnId, deliveryOrderId]
+      );
+
       await conn.query(
         `INSERT INTO sap_sync_logs
           (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
@@ -269,7 +421,11 @@ router.post('/', async (req, res, next) => {
         [docEntry, docNumberSo, JSON.stringify(req.body), orderId]
       );
 
-      return { id: orderId, mode, party_id: existing[0].party_id, lines, delivery_order_id: deliveryOrderId };
+      return {
+        id: orderId, mode, party_id: partyId, lines,
+        delivery_order_id: deliveryOrderId,
+        stock_transaction_number: txnNumber,
+      };
     });
 
     res.status(out.mode === 'updated' ? 200 : 201).json({
