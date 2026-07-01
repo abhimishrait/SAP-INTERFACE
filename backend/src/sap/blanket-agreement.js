@@ -25,21 +25,14 @@ function statusToken(v) {
   return a === null ? null : a ? 'A' : 'T';
 }
 
-// Canonical payload key is `agreement_no`. A few aliases are tolerated so old
-// or in-flight SAP payloads don't break; persisted to
-// blanket_agreements.sap_agreement_no (that's the DB column name — kept as-is).
+// Payload key is `agreement_no`; persisted to blanket_agreements.sap_agreement_no
+// (the DB column name is kept as-is even though the payload key is shorter).
 // Returns:
 //   undefined → key absent (leave column alone on update; NULL on insert)
-//   null      → key present but explicitly empty (clear the column on update)
-//   number    → validated integer to write
+//   null / '' → explicit clear (write NULL)
+//   number    → validated non-negative integer
 function extractAgreementNo(body) {
-  const raw =
-    body.agreement_no !== undefined ? body.agreement_no
-    : body.sap_agreement_no !== undefined ? body.sap_agreement_no
-    : body.agreement_number !== undefined ? body.agreement_number
-    : body.doc_num !== undefined ? body.doc_num
-    : body.doc_entry !== undefined ? body.doc_entry
-    : undefined;
+  const raw = body.agreement_no;
   if (raw === undefined) return undefined;
   if (raw === null || raw === '') return null;
   const n = Number(raw);
