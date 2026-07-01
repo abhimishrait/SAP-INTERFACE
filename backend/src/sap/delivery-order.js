@@ -55,10 +55,36 @@ function validate(body, mode = 'create') {
   if (Object.keys(errors).length) throw new ValidationError(errors);
 }
 
-async function findPartyId(req) {
-  // The SAP DO payload doesn't include a BP code; we fall back to the system user.
-  // If you map DO → BP via doc_number_so, plug it in here.
-  return null;
+// Insert the DO's line items into an existing (or new) sales_orders row.
+async function insertOrderItems(conn, orderId, doDetails) {
+  const lines = [];
+  for (const d of doDetails) {
+    const productId = await findProductIdBySku(d.item_code);
+    if (!productId) throw new ValidationError({ do_details: [`Product '${d.item_code}' does not exist.`] });
+    const qty = toDecimal(d.quantity);
+    const rate = toDecimal(d.rate);
+    const amount = toDecimal(d.amount);
+    const [li] = await conn.query(
+      `INSERT INTO order_items
+         (uuid, created_at, updated_at, is_active,
+          packaging_level, quantity, quantity_in_primary, rate, amount,
+          tax_rate, tax_amount, discount_percent, discount_amount, line_total,
+          qty_delivered, qty_received,
+          product_id, order_id, created_by_id, updated_by_id,
+          funded_by_snapshot, gst_treatment_applied, is_scheme_item, scheme_benefit_text)
+       VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+               'PRIMARY', ?, ?, ?, ?,
+               0, 0, 0, 0, ?,
+               ?, 0,
+               ?, ?, ?, ?,
+               'COMPANY', 'EXCLUSIVE', 0, '')`,
+      [qty, Math.round(qty), rate, amount, amount,
+        Math.round(qty),
+        productId, orderId, cfg.systemUserId, cfg.systemUserId]
+    );
+    lines.push({ id: li.insertId, item_code: d.item_code });
+  }
+  return lines;
 }
 
 router.post('/', async (req, res, next) => {
@@ -66,84 +92,88 @@ router.post('/', async (req, res, next) => {
     validate(req.body);
 
     const out = await withTx(async (conn) => {
-      // The sales_orders.party_id is NOT NULL. We need *some* BP — pick the first one as a fallback,
-      // unless your integration is supposed to derive it from another field.
-      const [bp] = await conn.query(`SELECT id FROM external_user_profiles ORDER BY id LIMIT 1`);
-      if (!bp.length) throw new ValidationError({ detail: ['No BP exists in DMS yet — sync at least one BP Master first.'] });
-      const partyId = bp[0].id;
-
-      const orderNum = req.body.do_number.slice(0, 20);
-      const [r] = await conn.query(
-        `INSERT INTO sales_orders
-           (uuid, created_at, updated_at, is_active,
-            order_number, order_date, billing_address, shipping_address, status,
-            subtotal, tax_amount, discount_amount, total_amount, total_scheme_benefit,
-            ordered_by_id, party_id, created_by_id, updated_by_id,
-            sap_doc_entry, sap_order_number, sap_sync_status, sap_synced_at, sap_synced_by_id,
-            order_source, order_type, remarks)
-         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-                 ?, ?, '', '', 'DELIVERED',
-                 ?, ?, 0, ?, 0,
-                 ?, ?, ?, ?,
-                 ?, ?, 'SYNCED', NOW(6), ?,
-                 'SAP', 'STANDARD', ?)`,
-        [
-          orderNum, parseDate(req.body.do_date),
-          toDecimal(req.body.do_amount), toDecimal(req.body.do_tax), toDecimal(req.body.do_total),
-          cfg.systemUserId, partyId, cfg.systemUserId, cfg.systemUserId,
-          parseInt(req.body.doc_entry, 10) || null, req.body.doc_number_so, cfg.systemUserId,
-          `SAP DO ${req.body.do_entry} / ${req.body.do_number}; invoice ${req.body.invoice_number || ''}`,
-        ]
+      // Upsert by SAP order number: the DO always belongs to an SO that already
+      // exists in DMS (either created from the UI or from an earlier SAP sync).
+      // We look it up by sap_order_number = doc_number_so, then mark it DELIVERED
+      // and replace its lines with the DO's lines. This preserves the SO's real
+      // customer (party_id) instead of the "first BP" default that used to run
+      // here and misassign every DO.
+      const docNumberSo = String(req.body.doc_number_so).trim();
+      const docEntry    = parseInt(req.body.doc_entry, 10) || null;
+      const [existing]  = await conn.query(
+        `SELECT id, party_id FROM sales_orders WHERE sap_order_number = ? LIMIT 1`,
+        [docNumberSo]
       );
-      const orderId = r.insertId;
 
-      const lines = [];
-      for (const d of req.body.do_details) {
-        const productId = await findProductIdBySku(d.item_code);
-        if (!productId) throw new ValidationError({ do_details: [`Product '${d.item_code}' does not exist.`] });
-        const qty = toDecimal(d.quantity);
-        const rate = toDecimal(d.rate);
-        const amount = toDecimal(d.amount);
-        const [li] = await conn.query(
-          `INSERT INTO order_items
-             (uuid, created_at, updated_at, is_active,
-              packaging_level, quantity, quantity_in_primary, rate, amount,
-              tax_rate, tax_amount, discount_percent, discount_amount, line_total,
-              qty_delivered, qty_received,
-              product_id, order_id, created_by_id, updated_by_id,
-              funded_by_snapshot, gst_treatment_applied, is_scheme_item, scheme_benefit_text)
-           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-                   'PRIMARY', ?, ?, ?, ?,
-                   0, 0, 0, 0, ?,
-                   ?, 0,
-                   ?, ?, ?, ?,
-                   'COMPANY', 'EXCLUSIVE', 0, '')`,
-          [qty, Math.round(qty), rate, amount, amount,
-            Math.round(qty),
-            productId, orderId, cfg.systemUserId, cfg.systemUserId]
+      let orderId;
+      let mode;
+      if (existing.length) {
+        // UPDATE — DO fulfils a known SO
+        orderId = existing[0].id;
+        mode = 'updated';
+        // NOTE: we deliberately do NOT overwrite `order_number` — that's the
+        // DMS-native SO number (e.g. SO-2026-0007) that the UI already displays.
+        // The SAP-side do_number lives in `remarks` alongside do_entry.
+        await conn.query(
+          `UPDATE sales_orders SET
+             order_date         = ?,
+             status             = 'DELIVERED',
+             subtotal           = ?,
+             tax_amount         = ?,
+             total_amount       = ?,
+             sap_doc_entry      = ?,
+             sap_sync_status    = 'SYNCED',
+             sap_synced_at      = NOW(6),
+             sap_synced_by_id   = ?,
+             updated_at         = NOW(6),
+             updated_by_id      = ?,
+             remarks            = CONCAT_WS(' | ', NULLIF(remarks, ''), ?)
+           WHERE id = ?`,
+          [
+            parseDate(req.body.do_date),
+            toDecimal(req.body.do_amount),
+            toDecimal(req.body.do_tax),
+            toDecimal(req.body.do_total),
+            docEntry,
+            cfg.systemUserId,
+            cfg.systemUserId,
+            `SAP DO ${req.body.do_entry} / ${req.body.do_number}; invoice ${req.body.invoice_number || ''}`,
+            orderId,
+          ]
         );
-        lines.push({ id: li.insertId, item_code: d.item_code });
+        // Replace the SO's lines with the DO's lines
+        await conn.query(`DELETE FROM order_items WHERE order_id = ?`, [orderId]);
+      } else {
+        // No SO with that sap_order_number — the DO arrived before the SO was
+        // synced. Reject with a clear error rather than misattributing the DO
+        // to a random BP; SAP will retry once the SO exists.
+        throw new ValidationError({
+          doc_number_so: [`No sales order with sap_order_number '${docNumberSo}' — cannot derive customer. Sync the SO first, then re-push the DO.`],
+        });
       }
 
-      // Existing sap_sync_logs table can mirror this — opportunistic insert.
+      const lines = await insertOrderItems(conn, orderId, req.body.do_details);
+
       await conn.query(
         `INSERT INTO sap_sync_logs
           (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
            request_payload, attempted_at, order_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, 'SYNCED', ?, ?, ?, NOW(6), ?)`,
-        [parseInt(req.body.doc_entry, 10) || null, req.body.doc_number_so, JSON.stringify(req.body), orderId]
+        [docEntry, docNumberSo, JSON.stringify(req.body), orderId]
       );
 
-      return { id: orderId, lines };
+      return { id: orderId, mode, party_id: existing[0].party_id, lines };
     });
 
-    res.status(201).json({
+    res.status(out.mode === 'updated' ? 200 : 201).json({
       ...out,
       do_entry: req.body.do_entry,
       do_number: req.body.do_number,
       doc_entry: req.body.doc_entry,
       doc_number_so: req.body.doc_number_so,
-      message: 'Delivery Order created successfully',
+      message: out.mode === 'updated'
+        ? 'Delivery Order recorded on existing sales order.'
+        : 'Delivery Order created successfully',
     });
   } catch (e) { next(e); }
 });
@@ -170,27 +200,7 @@ router.put('/:id/', async (req, res, next) => {
       if (Array.isArray(req.body.do_details) && req.body.do_details.length) {
         // PUT replaces all lines (per spec).
         await conn.query(`DELETE FROM order_items WHERE order_id = ?`, [id]);
-        for (const d of req.body.do_details) {
-          const productId = await findProductIdBySku(d.item_code);
-          if (!productId) throw new ValidationError({ do_details: [`Product '${d.item_code}' does not exist.`] });
-          await conn.query(
-            `INSERT INTO order_items
-               (uuid, created_at, updated_at, is_active,
-                packaging_level, quantity, quantity_in_primary, rate, amount,
-                tax_rate, tax_amount, discount_percent, discount_amount, line_total,
-                qty_delivered, qty_received, product_id, order_id,
-                created_by_id, updated_by_id, funded_by_snapshot, gst_treatment_applied, is_scheme_item, scheme_benefit_text)
-             VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-                     'PRIMARY', ?, ?, ?, ?,
-                     0, 0, 0, 0, ?,
-                     ?, 0, ?, ?, ?, ?, 'COMPANY', 'EXCLUSIVE', 0, '')`,
-            [
-              toDecimal(d.quantity), Math.round(toDecimal(d.quantity)), toDecimal(d.rate),
-              toDecimal(d.amount), toDecimal(d.amount), Math.round(toDecimal(d.quantity)),
-              productId, id, cfg.systemUserId, cfg.systemUserId,
-            ]
-          );
-        }
+        await insertOrderItems(conn, id, req.body.do_details);
       }
     });
     res.status(200).json({ id, message: 'Record updated successfully' });
