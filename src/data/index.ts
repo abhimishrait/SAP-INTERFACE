@@ -177,6 +177,24 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    id: 'return-request', code: 'OUT', label: 'Return Request',
+    desc: 'Dealer sales return → SAP B1 /ReturnRequest',
+    path: '/sap/return-request/', methods: ['POST', 'PATCH'],
+    rps: 0.1, errRate: 0.3, kind: 'transaction',
+    rules: [
+      'CardCode must reference an existing BP (party_code lookup)',
+      'DocDate / DocDueDate / TaxDate must be YYYY-MM-DD; DocDate ≤ DocDueDate',
+      'U_BulDis must be between 0 and 100 when provided',
+      'ReturnReason (DMS-only) must be damaged / expired / other (default other)',
+      'DocumentLines: at least one line; each needs ItemCode, Quantity > 0, UnitPrice ≥ 0, LineTotal ≥ 0',
+      'WithoutInventoryMovement Y or N per line',
+      'When WIM=N: BatchNumbers required, batch quantities must sum to line Quantity, BatchNumbers[].ItemCode must equal line ItemCode',
+      'Stock availability checked FOR UPDATE per (party, product, batch) — 400 if any batch is short',
+      'On success: sales_returns row + sales_return_lines rows, stock_levels decremented, return_number RET-YYYY-XXXX generated',
+      'PATCH /:id/ updates sap_doc_entry / sap_doc_number / sap_sync_status after DMS outbound worker replies',
+    ],
+  },
+  {
     id: 'channels', code: 'EXT', label: 'Channels',
     desc: 'Sales channel master (GT, MT, HoReCa…)',
     path: '/sap/channels/', methods: ['POST', 'PUT'],
@@ -352,6 +370,32 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'doc_entry', sapType: 'string(50)', sapDesc: 'SAP doc entry', dms: 'sap_doc_entry', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup · 404 if not found', status: 'mapped', confidence: 100, required: true },
     { sap: 'doc_number_so', sapType: 'string(50)', sapDesc: 'SAP SO #', dms: 'sap_so_number', dmsType: 'FK', dmsDesc: 'FK → sales_order', xform: 'lookup', status: 'mapped', confidence: 100, required: true },
     { sap: 'status', sapType: 'string', sapDesc: 'Cancel/Close/Open', dms: 'order_status', dmsType: 'enum', dmsDesc: 'Order state', xform: 'statusMap(Cancel→CANCELLED, Close→CLOSED, Open→OPEN)', status: 'mapped', confidence: 100, required: true },
+  ],
+  'return-request': [
+    { sap: 'CardCode',       sapType: 'string(20)',  sapDesc: 'BP code (party_code)',         dms: 'sales_returns.party_id',          dmsType: 'FK',       dmsDesc: 'FK → external_user_profiles', xform: 'lookup · 400 if unknown',  status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocDate',        sapType: 'string',      sapDesc: 'Return date (YYYY-MM-DD)',     dms: 'sales_returns.doc_date',          dmsType: 'date',     dmsDesc: 'Return date',                 xform: 'parseISO8601',              status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocDueDate',     sapType: 'string',      sapDesc: 'Due date (YYYY-MM-DD, ≥ DocDate)', dms: 'sales_returns.doc_due_date',  dmsType: 'date',     dmsDesc: 'Due date',                    xform: 'parseISO8601 · validate(≥DocDate)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'TaxDate',        sapType: 'string',      sapDesc: 'Tax date',                     dms: 'sales_returns.tax_date',          dmsType: 'date',     dmsDesc: 'Tax date',                    xform: 'parseISO8601',              status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocCurrency',    sapType: 'string',      sapDesc: 'Currency code (may be empty)', dms: 'sales_returns.doc_currency',      dmsType: 'string?',  dmsDesc: 'Currency',                    xform: 'direct',                    status: 'mapped', confidence: 100, required: false },
+    { sap: 'Comments',       sapType: 'string',      sapDesc: 'Header comments',              dms: 'sales_returns.comments',          dmsType: 'text?',    dmsDesc: 'Comments',                    xform: 'direct',                    status: 'mapped', confidence: 100, required: false },
+    { sap: 'U_BulDis',       sapType: 'string/decimal', sapDesc: 'Bulk discount % (0-100)',   dms: 'sales_returns.u_bul_dis',         dmsType: 'decimal?', dmsDesc: 'Bulk discount',               xform: 'toDecimal · validate(0-100)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'ReturnReason',   sapType: 'string',      sapDesc: 'DMS-only. damaged/expired/other',   dms: 'sales_returns.return_reason', dmsType: 'enum',     dmsDesc: 'Reason',                      xform: 'lower · default(other)',    status: 'mapped', confidence: 100, required: false },
+    { sap: 'Remarks',        sapType: 'string',      sapDesc: 'DMS-only. Dealer remarks',     dms: 'sales_returns.remarks',           dmsType: 'text?',    dmsDesc: 'Remarks',                     xform: 'direct',                    status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].ItemCode',                 sapType: 'string(50)',  sapDesc: 'SKU (must exist)',                          dms: 'sales_return_lines.item_code / product_id', dmsType: 'FK', dmsDesc: 'FK → products',       xform: 'lookup(sku_code)',           status: 'mapped', confidence: 99,  required: true },
+    { sap: 'DocumentLines[].Quantity',                 sapType: 'decimal',     sapDesc: 'Qty > 0',                                   dms: 'sales_return_lines.quantity',           dmsType: 'decimal',      dmsDesc: 'Line qty',            xform: 'toDecimal · validate(>0)',   status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocumentLines[].VatGroup',                 sapType: 'string(20)',  sapDesc: 'VAT group code',                            dms: 'sales_return_lines.vat_group',          dmsType: 'string?',      dmsDesc: 'VAT',                 xform: 'direct',                     status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].UnitPrice',                sapType: 'decimal',     sapDesc: 'Unit price ≥ 0',                            dms: 'sales_return_lines.unit_price',         dmsType: 'decimal',      dmsDesc: 'Price',               xform: 'toDecimal · validate(≥0)',   status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocumentLines[].LineTotal',                sapType: 'decimal',     sapDesc: 'Line total ≥ 0',                            dms: 'sales_return_lines.line_total',         dmsType: 'decimal',      dmsDesc: 'Line total',          xform: 'toDecimal · validate(≥0)',   status: 'mapped', confidence: 100, required: true },
+    { sap: 'DocumentLines[].AgreementNo',              sapType: 'string/int',  sapDesc: 'Blanket agreement number',                  dms: 'sales_return_lines.agreement_no',       dmsType: 'int?',         dmsDesc: 'Agreement #',         xform: 'parseInt',                   status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].WithoutInventoryMovement', sapType: 'string(1)',   sapDesc: 'Y or N',                                    dms: 'sales_return_lines.without_inventory_movement', dmsType: 'enum(Y/N)', dmsDesc: 'Move stock?', xform: 'upper · validate(Y/N)',      status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].CostingCode',              sapType: 'string(20)',  sapDesc: 'Cost center',                               dms: 'sales_return_lines.costing_code',       dmsType: 'string?',      dmsDesc: 'Cost center',         xform: 'direct',                     status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].COGSCostingCode',          sapType: 'string(20)',  sapDesc: 'COGS cost center',                          dms: 'sales_return_lines.cogs_costing_code',  dmsType: 'string?',      dmsDesc: 'COGS CC',             xform: 'direct',                     status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].U_Ratio',                  sapType: 'decimal',     sapDesc: 'Ratio (user field)',                        dms: 'sales_return_lines.u_ratio',            dmsType: 'decimal?',     dmsDesc: 'Ratio',               xform: 'toDecimal',                  status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].U_SAmnt',                  sapType: 'decimal',     sapDesc: 'Scheme amount (user field)',                dms: 'sales_return_lines.u_s_amnt',           dmsType: 'decimal?',     dmsDesc: 'Scheme amt',          xform: 'toDecimal',                  status: 'mapped', confidence: 100, required: false },
+    { sap: 'DocumentLines[].BatchNumbers[]',           sapType: 'array',       sapDesc: 'Required when WIM=N; sum(Quantity) must equal line Quantity', dms: 'sales_return_lines.batch_numbers', dmsType: 'json?', dmsDesc: 'Batches', xform: 'JSON · validate stock FOR UPDATE',   status: 'mapped', confidence: 100, required: false },
+    { sap: 'BatchNumbers[].ItemCode',                  sapType: 'string(50)',  sapDesc: 'Must equal line ItemCode',                  dms: '—',                                     dmsType: '—',            dmsDesc: 'Validation only',     xform: 'validate(== line.ItemCode)', status: 'review', confidence: 90,  required: false },
+    { sap: 'BatchNumbers[].BatchNumber',               sapType: 'string(50)',  sapDesc: 'Batch identifier',                          dms: 'stock_levels.batch_number',             dmsType: 'FK',           dmsDesc: 'Batch lookup',        xform: 'lookup + FOR UPDATE',        status: 'mapped', confidence: 100, required: false },
+    { sap: 'BatchNumbers[].Quantity',                  sapType: 'decimal',     sapDesc: 'Qty for this batch',                        dms: 'stock_levels.current_quantity', dmsType: 'decimal', dmsDesc: 'Decrement source', xform: 'decrement · validate(≥0)',   status: 'mapped', confidence: 100, required: false },
   ],
   'invoice-order': [
     { sap: 'card_code',     sapType: 'string(20)',  sapDesc: 'BP code (must match SO party)', dms: 'external_user_profiles.party_code', dmsType: 'FK', dmsDesc: 'SO.party_id', xform: 'lookup · validate matches SO', status: 'mapped', confidence: 100, required: true },
@@ -847,6 +891,46 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "status": "Y"
 }`,
     response: `{ "id": 9, "name": "General Trade", "code": "GT", "short_name": "GT", "description": "General trade outlets", "is_active": true, "message": "Channel created successfully" }`,
+  },
+  'return-request': {
+    request: `{
+  "CardCode": "614502345",
+  "DocDate": "2026-02-06",
+  "DocDueDate": "2026-02-28",
+  "TaxDate": "2026-02-06",
+  "DocCurrency": "",
+  "Comments": "Damaged during transit; returning per dealer request.",
+  "U_BulDis": "5",
+  "ReturnReason": "damaged",
+  "Remarks": "Handled by dealer manager",
+  "DocumentLines": [
+    {
+      "ItemCode": "FG203003",
+      "Quantity": "10",
+      "VatGroup": "VAT-13",
+      "UnitPrice": "1140.04",
+      "LineTotal": "11400.40",
+      "AgreementNo": "31438",
+      "WithoutInventoryMovement": "N",
+      "CostingCode": "C. EAST",
+      "COGSCostingCode": "C. EAST",
+      "U_Ratio": "3",
+      "U_SAmnt": "342.01",
+      "BatchNumbers": [
+        { "ItemCode": "FG203003", "BatchNumber": "108207", "Quantity": 10 }
+      ]
+    }
+  ]
+}`,
+    response: `{
+  "id": 42,
+  "return_number": "RET-2026-0001",
+  "card_code": "614502345",
+  "party_name": "Sunrise Distributors",
+  "stock_moved": true,
+  "sap_sync_status": "pending",
+  "message": "Return Request created successfully."
+}`,
   },
   'invoice-order': {
     request: `{

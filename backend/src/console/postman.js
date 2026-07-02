@@ -24,6 +24,7 @@ const MODULES = [
   { id: 'balance-status-update',code: '3.15', label: 'Balance Status Update',  methods: ['PUT'] },
   { id: 'order-status-sync',    code: '3.16', label: 'Order Status Sync',      methods: ['PUT'] },
   { id: 'invoice-order',        code: 'EXT',  label: 'Invoice Order',          methods: ['POST'] },
+  { id: 'return-request',       code: 'OUT',  label: 'Return Request',         methods: ['POST', 'PATCH'] },
   { id: 'channels',             code: 'EXT',  label: 'Channels',               methods: ['POST', 'PUT'] },
 ];
 
@@ -86,6 +87,26 @@ const SAMPLES = {
   },
   'balance-status-update': { party_code: 'PARTY001', updated_amount: 1500.5 },
   'order-status-sync':     { doc_entry: 'DOC001', doc_number_so: 'DOC-SO-001', status: 'Cancel' },
+  'return-request': {
+    CardCode: '614502345',
+    DocDate: '2026-02-06', DocDueDate: '2026-02-28', TaxDate: '2026-02-06',
+    DocCurrency: '',
+    Comments: 'Damaged during transit; returning per dealer request.',
+    U_BulDis: '5',
+    ReturnReason: 'damaged',
+    Remarks: 'Handled by dealer manager',
+    DocumentLines: [{
+      ItemCode: 'FG203003', Quantity: '10',
+      VatGroup: 'VAT-13', UnitPrice: '1140.04', LineTotal: '11400.40',
+      AgreementNo: '31438',
+      WithoutInventoryMovement: 'N',
+      CostingCode: 'C. EAST', COGSCostingCode: 'C. EAST',
+      U_Ratio: '3', U_SAmnt: '342.01',
+      BatchNumbers: [
+        { ItemCode: 'FG203003', BatchNumber: '108207', Quantity: 10 },
+      ],
+    }],
+  },
   'invoice-order': {
     card_code: '600032447', card_name: 'S.K. STORES',
     doc_date: '2026-07-01', doc_due_date: '2026-07-31', tax_date: '2026-07-01',
@@ -148,7 +169,7 @@ router.get('/', (req, res) => {
   const baseUrl = req.query.base || `http://localhost:${cfg.port}`;
   // Group by spec category (master / transactional) for cleaner Postman folders.
   const masterIds = new Set(['bp-master','blanket-agreement','greater-circles','circles','container','matrix','product-class','product-name','payment-terms','price-list-group','price-list','special-price-list','products','channels']);
-  const txnIds    = new Set(['delivery-order','invoice-order','balance-status-update','order-status-sync']);
+  const txnIds    = new Set(['delivery-order','invoice-order','return-request','balance-status-update','order-status-sync']);
 
   const masters = MODULES.filter(m => masterIds.has(m.id));
   const txns    = MODULES.filter(m => txnIds.has(m.id));
