@@ -20,5 +20,6 @@ router.use('/invoice-order',        require('./invoice-order'));          // inv
 router.use('/balance-status-update', require('./balance-status-update')); // 3.15
 router.use('/order-status-sync',    require('./order-status-sync'));      // 3.16
 router.use('/channels',             require('./channels'));                // master
+router.use('/return-request',       require('./return-request'));          // outbound — dealer return → SAP /ReturnRequest
 
 module.exports = router;
