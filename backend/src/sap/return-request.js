@@ -98,6 +98,88 @@ async function generateReturnNumber(conn) {
   return `${prefix}${String(lastSeq + 1).padStart(4, '0')}`;
 }
 
+// Stock-out transactions from returns use the STO-YYYY-XXXX prefix so
+// they don't visually collide with sales-order numbers (SO-YYYY-XXXX
+// on sales_orders) or the DO's stock-in SI-YYYY-XXXX. Same pattern as
+// generateReturnNumber, guarded by FOR UPDATE.
+async function generateStockOutNumber(conn) {
+  const year = new Date().getFullYear();
+  const prefix = `STO-${year}-`;
+  const [rows] = await conn.query(
+    `SELECT transaction_number FROM stock_transactions
+      WHERE transaction_number LIKE ?
+      ORDER BY transaction_number DESC LIMIT 1
+      FOR UPDATE`,
+    [`${prefix}%`]
+  );
+  const lastSeq = rows[0]
+    ? parseInt(String(rows[0].transaction_number).split('-').pop(), 10) || 0
+    : 0;
+  return `${prefix}${String(lastSeq + 1).padStart(4, '0')}`;
+}
+
+// Record the stock-out side of a return: one stock_transactions header
+// (transaction_type='stock_out', sales_return_id=<return>, party_id=<dealer>)
+// with per-batch stock_transaction_items rows carrying the SAP CostingCode.
+// Mirrors delivery-order.js's stock-in create pattern (SI-YYYY-XXXX)
+// so the DMS "Stock Ledger" report reads uniform rows regardless of
+// direction. Returns { id, transaction_number } or null when every line
+// has WithoutInventoryMovement=Y (nothing physically moved).
+async function recordStockOutForReturn(conn, { returnId, partyId, docDate, body, productCache }) {
+  const movedLines = body.DocumentLines.filter(
+    (ln) => String(ln.WithoutInventoryMovement || 'N').toUpperCase() === 'N'
+  );
+  if (!movedLines.length) return null;
+
+  const txnNumber = await generateStockOutNumber(conn);
+  const [hdr] = await conn.query(
+    `INSERT INTO stock_transactions
+       (uuid, created_at, updated_at, is_active,
+        created_by_id, updated_by_id,
+        transaction_number, transaction_type, transaction_date,
+        order_id, sales_return_id, party_id,
+        remarks)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+             ?, ?,
+             ?, 'stock_out', ?,
+             NULL, ?, ?,
+             ?)`,
+    [
+      cfg.systemUserId, cfg.systemUserId,
+      txnNumber, docDate,
+      returnId, partyId,
+      `Auto stock-out from return ${body._returnNumber || returnId}`,
+    ]
+  );
+  const stockTxnId = hdr.insertId;
+
+  for (const ln of movedLines) {
+    const product = productCache.get(ln.ItemCode) || await findProductBySku(ln.ItemCode);
+    if (!product) continue; // already validated
+    const costingCode = ln.CostingCode || null; // the "region" per line
+    for (const b of (ln.BatchNumbers || [])) {
+      const bqty = Math.round(toDecimal(b.Quantity));
+      await conn.query(
+        `INSERT INTO stock_transaction_items
+           (uuid, created_at, updated_at, is_active,
+            created_by_id, updated_by_id,
+            stock_transaction_id, product_id,
+            batch_number, uom, costing_code, quantity)
+         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                 ?, ?,
+                 ?, ?,
+                 ?, ?, ?, ?)`,
+        [
+          cfg.systemUserId, cfg.systemUserId,
+          stockTxnId, product.id,
+          b.BatchNumber, 'CTN', costingCode, bqty,
+        ]
+      );
+    }
+  }
+  return { id: stockTxnId, transaction_number: txnNumber };
+}
+
 // Validate the incoming body. Throws ValidationError with the SAP-shaped
 // field names so error messages point directly at what the caller sent.
 function validate(body) {
@@ -341,7 +423,7 @@ router.post('/', async (req, res, next) => {
           `INSERT INTO sales_return_lines
              (uuid, created_at, updated_at, is_active,
               created_by_id, updated_by_id,
-              return_id, line_number,
+              sales_return_id, line_number,
               item_code, product_id,
               quantity, vat_group, unit_price, line_total,
               agreement_no, without_inventory_movement,
@@ -375,7 +457,29 @@ router.post('/', async (req, res, next) => {
       // Decrement stock for inventory-moving lines.
       await decrementStock(conn, party.id, docDate, req.body);
 
-      return { id: returnId, return_number: returnNumber, party_id: party.id, stock_moved: anyMoved };
+      // Ledger side: create the matching stock_transactions (type=stock_out)
+      // + per-batch stock_transaction_items so the DMS "Stock Ledger" report
+      // has an audit row for every unit that left this dealer's balance.
+      // Skipped when every line has WithoutInventoryMovement=Y.
+      const productCache = new Map();
+      for (const ln of req.body.DocumentLines) {
+        if (!productCache.has(ln.ItemCode)) {
+          productCache.set(ln.ItemCode, await findProductBySku(ln.ItemCode));
+        }
+      }
+      req.body._returnNumber = returnNumber; // handy for the remarks
+      const stockTxn = await recordStockOutForReturn(conn, {
+        returnId, partyId: party.id, docDate, body: req.body, productCache,
+      });
+
+      return {
+        id: returnId,
+        return_number: returnNumber,
+        party_id: party.id,
+        stock_moved: anyMoved,
+        stock_transaction_id: stockTxn?.id || null,
+        stock_transaction_number: stockTxn?.transaction_number || null,
+      };
     });
 
     res.status(201).json({
@@ -384,6 +488,8 @@ router.post('/', async (req, res, next) => {
       card_code: party.party_code,
       party_name: party.party_name,
       stock_moved: out.stock_moved,
+      stock_transaction_id: out.stock_transaction_id,
+      stock_transaction_number: out.stock_transaction_number,
       sap_sync_status: 'pending',
       message: 'Return Request created successfully.',
     });
@@ -412,7 +518,7 @@ router.get('/:id/', async (req, res, next) => {
               costing_code, cogs_costing_code,
               u_ratio, u_s_amnt, batch_numbers
          FROM sales_return_lines
-        WHERE return_id = ?
+        WHERE sales_return_id = ?
         ORDER BY line_number ASC`,
       [id]
     );
