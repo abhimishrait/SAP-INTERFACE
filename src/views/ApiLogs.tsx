@@ -82,7 +82,7 @@ export default function ApiLogs({ density, rightPaneTab, setRightPaneTab, select
         <div style={{ overflow: 'auto' }}>
           <table className="t">
             <thead><tr>
-              <th>Time · NPT</th><th>Txn ID</th><th>Module</th><th>Endpoint</th><th>Status</th><th style={{ textAlign: 'right' }}>Duration</th>
+              <th>Time · UTC</th><th>Txn ID</th><th>Module</th><th>Endpoint</th><th>Status</th><th style={{ textAlign: 'right' }}>Duration</th>
             </tr></thead>
             <tbody>
               {filtered.length === 0 && !loading && (
@@ -185,7 +185,7 @@ function buildResHeaders(tx: Transaction, detail: TxRowDetail | null): string {
     `Content-Length: ${tx.bytesOut || 0}`,
     `X-Correlation-Id: ${tx.id}`,
     `X-Module: ${tx.moduleId}`,
-    detail ? `Date: ${fmtDateTimeNpt(new Date(detail.created_at))} NPT` : '',
+    detail ? `Date: ${fmtDateTimeNpt(new Date(detail.created_at))} UTC` : '',
   ].filter(Boolean).join('\n');
 }
 

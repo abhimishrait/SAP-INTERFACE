@@ -52,7 +52,7 @@ export default function Overview({ flowAnim, density }: { flowAnim: boolean; den
         <Stat label="Requests · 24h"   value={fmt(totals?.calls)} sub="last 24 hours" icon={<Sparkline seed={2} stroke="var(--teal)" w={88} h={28} />} />
         <Stat label="Success rate"     value={successRate} accent="var(--teal)" sub={`${fmt(totals?.errors)} errored`} />
         <Stat label="Avg latency"      value={totals?.avg_ms ? `${Math.round(totals.avg_ms)}ms` : '—'} sub="across all 16 modules" />
-        <Stat label="Last call · NPT"  value={totals?.latest ? fmtTimeNpt(new Date(totals.latest)) : '—'} sub={data?.by_module.length ? `${data.by_module.length} modules active` : 'no traffic yet'} />
+        <Stat label="Last call · UTC"  value={totals?.latest ? fmtTimeNpt(new Date(totals.latest)) : '—'} sub={data?.by_module.length ? `${data.by_module.length} modules active` : 'no traffic yet'} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 20 }}>
@@ -70,7 +70,7 @@ export default function Overview({ flowAnim, density }: { flowAnim: boolean; den
           <div className="body">
             <BarChart h={140} color="var(--teal)" bars={volBars} accent={volPuts} />
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--font-jetbrains-mono), monospace' }}>
-              <span>24h ago</span><span>18h</span><span>12h</span><span>6h</span><span>now · NPT</span>
+              <span>24h ago</span><span>18h</span><span>12h</span><span>6h</span><span>now · UTC</span>
             </div>
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function Overview({ flowAnim, density }: { flowAnim: boolean; den
         </div>
         <table className="t">
           <thead><tr>
-            <th>Time · NPT</th><th>Txn ID</th><th>Module</th><th>Endpoint</th><th>Status</th><th>Customer</th><th style={{ textAlign: 'right' }}>Duration</th>
+            <th>Time · UTC</th><th>Txn ID</th><th>Module</th><th>Endpoint</th><th>Status</th><th>Customer</th><th style={{ textAlign: 'right' }}>Duration</th>
           </tr></thead>
           <tbody>
             {recent.length === 0 && !loading && (

@@ -39,16 +39,11 @@ export function relTimeNow(date: Date): string {
   return `${Math.floor(m / 60)}h ${m % 60}m ago`;
 }
 
-// NPT (Nepal Time, UTC+5:45) — show all log timestamps in the user's local frame.
-const NPT_TZ = 'Asia/Kathmandu';
-
+// Show all log timestamps in UTC.
 export function fmtTimeNpt(d: Date): string {
-  // HH:MM:SS in 24h NPT
-  return d.toLocaleTimeString('en-GB', { timeZone: NPT_TZ, hour12: false });
+  return d.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false });
 }
 
 export function fmtDateTimeNpt(d: Date): string {
-  // YYYY-MM-DD HH:MM:SS in NPT (no extra locale punctuation)
-  const s = d.toLocaleString('sv-SE', { timeZone: NPT_TZ, hour12: false });
-  return s; // "2026-05-22 11:42:18"
+  return d.toLocaleString('sv-SE', { timeZone: 'UTC', hour12: false });
 }
