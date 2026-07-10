@@ -124,16 +124,38 @@ async function resolveLookups(body) {
   // Greater Circle (3.3) → zones | Circle (3.4) → towns. Both are M2M on the
   // BP profile (external_user_profiles_zones / _towns); resolve to ids here
   // and let the caller persist the M2M rows.
+  //
+  // When both greater_circle_name and circle_name are supplied, the town's
+  // parent zone (towns.zone_id) must match the resolved greater_circle. This
+  // catches SAP payloads that pair a town with the wrong zone, instead of
+  // silently persisting the mismatched pair.
   if (body.greater_circle_name) {
     const zid = await findIdByName('zones', body.greater_circle_name);
     if (!zid) errors.greater_circle_name = [`Zone '${body.greater_circle_name}' does not exist.`];
     else out.zone_id = zid;
   }
   if (body.circle_name) {
-    const tid = await findIdByName('towns', body.circle_name);
-    if (!tid) errors.circle_name = [`Town '${body.circle_name}' does not exist.`];
-    else out.town_id = tid;
+    const townRef = String(body.circle_name).trim();
+    const [rows] = await pool.query(
+      `SELECT id, zone_id FROM towns WHERE LOWER(name) = LOWER(?) LIMIT 1`,
+      [townRef]
+    );
+    if (!rows.length) {
+      errors.circle_name = [`Town '${body.circle_name}' does not exist.`];
+    } else {
+      out.town_id = rows[0].id;
+      out._town_zone_id = rows[0].zone_id;
+    }
   }
+  // Cross-check: greater_circle ↔ circle parentage.
+  if (out.zone_id && out.town_id) {
+    if (out._town_zone_id == null) {
+      errors.circle_name = [`Greater circle not mapped to circle '${body.circle_name}'.`];
+    } else if (Number(out._town_zone_id) !== Number(out.zone_id)) {
+      errors.circle_name = [`Greater circle '${body.greater_circle_name}' not mapped to circle '${body.circle_name}'.`];
+    }
+  }
+  delete out._town_zone_id;
   // reporting_to_emp → external_user_profiles.reporting_to_id (FK → users.id).
   //
   // The employee code lives on `internal_user_profiles.employee_code` (UNIQUE),
