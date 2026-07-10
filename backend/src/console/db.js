@@ -6,7 +6,7 @@ const router = express.Router();
 
 const TABLES_OF_INTEREST = [
   'sap_sync_logs',
-  'external_user_profiles',
+  'external_user_profiles', 'user_addresses', 'users',
   'sales_orders', 'order_items', 'order_status_history',
   'products', 'price_lists', 'price_list_items',
   'special_price_lists', 'special_price_list_items',

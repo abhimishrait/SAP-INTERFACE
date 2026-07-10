@@ -237,6 +237,67 @@ async function syncBpZonesTowns(conn, externalProfileId, { zoneId, townId }) {
   }
 }
 
+// Country name → countries.id. Mints a countries row when absent so a fresh
+// DMS doesn't 500 on the first BP that references a new country.
+async function findOrCreateCountryId(conn, name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return null;
+  const [rows] = await conn.query(
+    `SELECT id FROM countries WHERE LOWER(name) = LOWER(?) OR UPPER(code) = UPPER(?) LIMIT 1`,
+    [trimmed, trimmed]
+  );
+  if (rows[0]) return rows[0].id;
+  // Derive a 3-char code from the name; suffix on collision.
+  const base = trimmed.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 3) || 'XXX';
+  let code = base;
+  for (let i = 1; i < 50; i++) {
+    const [dup] = await conn.query(`SELECT 1 FROM countries WHERE code = ? LIMIT 1`, [code]);
+    if (!dup.length) break;
+    code = base.slice(0, 2) + i;
+  }
+  const [r] = await conn.query(
+    `INSERT INTO countries (uuid, created_at, updated_at, is_active, name, code, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?)`,
+    [trimmed, code, cfg.systemUserId, cfg.systemUserId]
+  );
+  return r.insertId;
+}
+
+// Persist SAP's bill_to_* / ship_to_* into user_addresses. One row per address
+// type ('billing' / 'shipping'), idempotent (delete + re-insert on each call).
+// Skips the type entirely when its address_line_1 is absent from the payload.
+// pincode is NOT NULL on the table but SAP doesn't send one — default to ''.
+async function syncBpAddresses(conn, userId, body) {
+  const specs = [
+    { type: 'billing',  line: body.bill_to_address_line_1, country: body.bill_to_country_name },
+    { type: 'shipping', line: body.ship_to_address_line_1, country: body.ship_to_country_name },
+  ];
+  const touched = specs.filter(s => s.line !== undefined || s.country !== undefined);
+  if (!touched.length) return;
+  for (const s of touched) {
+    await conn.query(
+      `DELETE FROM user_addresses WHERE user_id = ? AND address_type = ?`,
+      [userId, s.type]
+    );
+    // Only insert when the caller supplied at least a line — otherwise treat
+    // the payload as "clear this address type".
+    if (!s.line) continue;
+    const countryId = await findOrCreateCountryId(conn, s.country);
+    await conn.query(
+      `INSERT INTO user_addresses
+         (uuid, created_at, updated_at, is_active,
+          address_type, address_line_1, address_line_2, pincode, is_default,
+          user_id, country_id,
+          created_by_id, updated_by_id)
+       VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+               ?, ?, NULL, '', 1,
+               ?, ?,
+               ?, ?)`,
+      [s.type, String(s.line).trim().slice(0, 255), userId, countryId, cfg.systemUserId, cfg.systemUserId]
+    );
+  }
+}
+
 // Replace the BP's channel M2M set with `channelIds` (idempotent).
 // channelIds: array of channel ids, or null to skip (key absent in payload).
 async function syncBpChannels(conn, externalProfileId, channelIds) {
@@ -367,6 +428,8 @@ router.post('/', async (req, res, next) => {
       });
       // Channels → external_user_profiles_channels (M2M; multiple allowed)
       await syncBpChannels(conn, r.insertId, lookups.channel_ids ?? null);
+      // bill_to_* / ship_to_* → user_addresses (one row per type).
+      await syncBpAddresses(conn, userId, req.body);
       return {
         id: r.insertId,
         user_id: userId,
@@ -477,6 +540,20 @@ router.put('/:id/', async (req, res, next) => {
       const conn = await pool.getConnection();
       try {
         await syncBpChannels(conn, id, lookups.channel_ids);
+      } finally {
+        conn.release();
+      }
+    }
+
+    // bill_to_* / ship_to_* → user_addresses. Only touched when one of the
+    // address keys is present in the payload.
+    if (
+      req.body.bill_to_address_line_1 !== undefined || req.body.bill_to_country_name !== undefined ||
+      req.body.ship_to_address_line_1 !== undefined || req.body.ship_to_country_name !== undefined
+    ) {
+      const conn = await pool.getConnection();
+      try {
+        await syncBpAddresses(conn, exists[0].user_id, req.body);
       } finally {
         conn.release();
       }
