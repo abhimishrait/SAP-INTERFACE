@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { Icons, Chip, Method, Status, HttpHeadersBlock, JsonBlock, SubHd, ViewHeader } from '@/components';
-import { MODULE_BY_ID, MAPPINGS_BY_MODULE, SAMPLE_PAYLOADS, AUTH_USER, RESPONSE_CODES, type Transaction } from '@/data';
+import { MODULE_BY_ID, MAPPINGS_BY_MODULE, AUTH_USER, RESPONSE_CODES, type Transaction } from '@/data';
 import { useApi } from '@/lib/useApi';
 import { console_, type TxRow, type TxRowDetail } from '@/lib/api';
 import { txFromBackend, fmtTimeNpt, fmtDateTimeNpt } from '@/lib/adapters';
@@ -190,7 +190,7 @@ function buildResHeaders(tx: Transaction, detail: TxRowDetail | null): string {
 }
 
 function TabRequest({ tx, detail }: { tx: Transaction; detail: TxRowDetail | null }) {
-  const reqBody = detail?.request_body ?? SAMPLE_PAYLOADS[tx.moduleId]?.request;
+  const reqBody = detail?.request_body;
   const reqText = reqBody == null ? null : typeof reqBody === 'string' ? reqBody : JSON.stringify(reqBody, null, 2);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -203,7 +203,7 @@ function TabRequest({ tx, detail }: { tx: Transaction; detail: TxRowDetail | nul
 }
 
 function TabResponse({ tx, detail }: { tx: Transaction; detail: TxRowDetail | null }) {
-  const resBody = detail?.response_body ?? (tx.status < 400 ? SAMPLE_PAYLOADS[tx.moduleId]?.response : null);
+  const resBody = detail?.response_body;
   const resText = resBody == null ? null : typeof resBody === 'string' ? resBody : JSON.stringify(resBody, null, 2);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

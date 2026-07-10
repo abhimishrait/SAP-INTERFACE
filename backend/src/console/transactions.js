@@ -46,7 +46,18 @@ router.get('/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const row = await one(
-      `SELECT * FROM sap_sync_logs WHERE id = ? LIMIT 1`, [id]
+      `SELECT id, correlation_id AS tx_id, direction, module_id, method, path, resource_id,
+              status_code, pipeline_stage, error_message,
+              duration_ms, bytes_in, bytes_out, retry_count,
+              distributor_name, customer_code, doc_number,
+              remote_ip, user_agent,
+              request_headers,
+              request_payload  AS request_body,
+              response_payload AS response_body,
+              correlation_id,
+              created_at
+         FROM sap_sync_logs
+         WHERE id = ? LIMIT 1`, [id]
     );
     if (!row) return res.status(404).json({ detail: 'Not found.' });
     res.json(row);
