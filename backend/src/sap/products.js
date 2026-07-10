@@ -125,23 +125,29 @@ async function validateBody(body, { isCreate }) {
   const out = {};
 
   // product_name is free text — written verbatim to products.product_name.
+  //
+  // For PUT, SAP resends the full record even when only a few fields changed.
+  // If a referenced master (matrix / container) doesn't exist in DMS we skip
+  // that column instead of 400-ing the whole update — a single stale reference
+  // was silently blocking fields the user actually wants to update (UOM,
+  // category, status, product_name). POST stays strict.
   if (body.sujal_matrix !== undefined) {
     // Matrix lives in `sujal_matrices` (simple-master shape: name + code +
     // is_active). SAP sends the matrix `name` in `sujal_matrix`.
     const ref = String(body.sujal_matrix).trim();
     const smId = await findIdByName('sujal_matrices', ref);
-    if (!smId) errors.sujal_matrix = [`Matrix '${ref}' does not exist.`];
-    else out.sujal_matrix_id = smId;
+    if (smId) out.sujal_matrix_id = smId;
+    else if (isCreate) errors.sujal_matrix = [`Matrix '${ref}' does not exist.`];
   }
   if (body.primary_selling_unit_name !== undefined) {
     const p = await findIdByName('packaging_types', body.primary_selling_unit_name);
-    if (!p) errors.primary_selling_unit_name = [`Container '${body.primary_selling_unit_name}' does not exist.`];
-    out.primary_packaging_id = p;
+    if (p) out.primary_packaging_id = p;
+    else if (isCreate) errors.primary_selling_unit_name = [`Container '${body.primary_selling_unit_name}' does not exist.`];
   }
   if (body.secondary_selling_unit_name !== undefined) {
     const p = await findIdByName('packaging_types', body.secondary_selling_unit_name);
-    if (!p) errors.secondary_selling_unit_name = [`Container '${body.secondary_selling_unit_name}' does not exist.`];
-    out.secondary_packaging_id = p;
+    if (p) out.secondary_packaging_id = p;
+    else if (isCreate) errors.secondary_selling_unit_name = [`Container '${body.secondary_selling_unit_name}' does not exist.`];
   }
   if (body.tax_code !== undefined) {
     if (!Array.isArray(body.tax_code) || body.tax_code.length === 0) {
