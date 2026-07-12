@@ -253,6 +253,7 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'payment_terms', sapType: 'string', sapDesc: 'Payment terms name', dms: 'payment_terms_id', dmsType: 'FK', dmsDesc: 'FK → payment_terms', xform: 'lookup(name → id)', status: 'mapped', confidence: 98, required: false },
     { sap: 'rate_group', sapType: 'string', sapDesc: 'Pricing rate group', dms: 'rate_group_id', dmsType: 'FK', dmsDesc: 'FK → price_list_group', xform: 'lookup(name → id)', status: 'mapped', confidence: 98, required: false },
     { sap: 'channel_name', sapType: 'string', sapDesc: 'Single channel (one per BP)', dms: 'external_user_profiles_channels', dmsType: 'M2M (single row)', dmsDesc: 'FK → channels', xform: 'lookup(code|name → id) · enforce single', status: 'mapped', confidence: 98, required: false },
+    { sap: 'credit_limit', sapType: 'decimal', sapDesc: 'BP credit ceiling (non-negative)', dms: 'external_user_profiles.credit_limit', dmsType: 'decimal(14,2)', dmsDesc: 'Credit limit', xform: 'toDecimal · validate(≥ 0)', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active flag', xform: 'statusMap(Y/N/1/0)', status: 'mapped', confidence: 100, required: true },
   ],
   'blanket-agreement': [
@@ -645,7 +646,8 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "rate_group": "Standard",
   "channel_name": "GT",
   "status": "Y",
-  "cost_center_master": "CC.100"
+  "cost_center_master": "CC.100",
+  "credit_limit": "1000000"
 }`,
     response: `{
   "id": 4831,
