@@ -504,13 +504,14 @@ async function handleDoUpsert(req, res, next) {
             [computed, cfg.systemUserId, orderId]
           );
           // Audit trail row so the SO history in the UI reflects who/why.
+          // changed_at is NOT NULL with no DB default (separate from created_at).
           await conn.query(
             `INSERT INTO order_status_history
                (uuid, created_at, updated_at, is_active,
-                created_by_id, updated_by_id, changed_by_id,
+                created_by_id, updated_by_id, changed_by_id, changed_at,
                 order_id, from_status, to_status, remarks)
              VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-                     ?, ?, ?,
+                     ?, ?, ?, NOW(6),
                      ?, ?, ?, ?)`,
             [
               cfg.systemUserId, cfg.systemUserId, cfg.systemUserId,
