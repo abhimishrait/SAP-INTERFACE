@@ -155,21 +155,36 @@ async function handleDoUpsert(req, res, next) {
       // production unit and gets N distinct DocNums back. Only the
       // FIRST push's DocNum lands on sales_orders.sap_order_number;
       // every push is recorded in sap_sync_logs with its own
-      // sap_doc_num / sap_doc_entry. Match via either table so DOs
-      // for the 2nd/3rd/… PU still resolve to their parent SO.
-      const [existing]  = await conn.query(
-        `SELECT so.id, so.party_id, so.status
-           FROM sales_orders so
-          WHERE so.sap_order_number = ?
-             OR (? IS NOT NULL AND so.sap_doc_entry = ?)
-             OR so.id IN (
-                  SELECT order_id FROM sap_sync_logs
-                   WHERE status = 'success'
-                     AND (sap_doc_num = ? OR (? IS NOT NULL AND sap_doc_entry = ?))
-                )
-          LIMIT 1`,
-        [docNumberSo, docEntry, docEntry, docNumberSo, docEntry, docEntry]
+      // sap_doc_num / sap_doc_entry. Try the SO row first, then fall
+      // back to the log — small, targeted queries beat one giant OR
+      // with mixed-type params (NULL doc_entry made mysql2 bind as an
+      // untyped placeholder that some servers reject).
+      let existing = [];
+      const soRow = await conn.query(
+        `SELECT id, party_id, status FROM sales_orders WHERE sap_order_number = ? LIMIT 1`,
+        [docNumberSo]
       );
+      existing = soRow[0];
+      if (!existing.length && docEntry) {
+        const soRow2 = await conn.query(
+          `SELECT id, party_id, status FROM sales_orders WHERE sap_doc_entry = ? LIMIT 1`,
+          [docEntry]
+        );
+        existing = soRow2[0];
+      }
+      if (!existing.length) {
+        const logRow = await conn.query(
+          `SELECT so.id, so.party_id, so.status
+             FROM sap_sync_logs l
+             JOIN sales_orders so ON so.id = l.order_id
+            WHERE l.status = 'success'
+              AND (l.sap_doc_num = ?${docEntry ? ' OR l.sap_doc_entry = ?' : ''})
+            ORDER BY l.attempted_at DESC
+            LIMIT 1`,
+          docEntry ? [docNumberSo, docEntry] : [docNumberSo]
+        );
+        existing = logRow[0];
+      }
 
       let orderId;
       let currentStatus;

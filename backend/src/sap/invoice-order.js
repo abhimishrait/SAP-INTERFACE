@@ -82,20 +82,40 @@ router.post('/', async (req, res, next) => {
       // production unit, so the 2nd/3rd/… SAP doc_number_so isn't on
       // sales_orders.sap_order_number (that column only holds the first
       // push). Fall back through sap_sync_logs which records every push.
-      const [existing] = await conn.query(
+      // Split into targeted queries — a single mixed-NULL OR upset mysql2.
+      let existing = [];
+      const soRow = await conn.query(
         `SELECT so.id, so.party_id, eup.party_code
            FROM sales_orders so
            LEFT JOIN external_user_profiles eup ON eup.id = so.party_id
-          WHERE so.sap_order_number = ?
-             OR (? IS NOT NULL AND so.sap_doc_entry = ?)
-             OR so.id IN (
-                  SELECT order_id FROM sap_sync_logs
-                   WHERE status = 'success'
-                     AND (sap_doc_num = ? OR (? IS NOT NULL AND sap_doc_entry = ?))
-                )
-          LIMIT 1`,
-        [docNumberSo, docEntrySo, docEntrySo, docNumberSo, docEntrySo, docEntrySo]
+          WHERE so.sap_order_number = ? LIMIT 1`,
+        [docNumberSo]
       );
+      existing = soRow[0];
+      if (!existing.length && docEntrySo) {
+        const soRow2 = await conn.query(
+          `SELECT so.id, so.party_id, eup.party_code
+             FROM sales_orders so
+             LEFT JOIN external_user_profiles eup ON eup.id = so.party_id
+            WHERE so.sap_doc_entry = ? LIMIT 1`,
+          [docEntrySo]
+        );
+        existing = soRow2[0];
+      }
+      if (!existing.length) {
+        const logRow = await conn.query(
+          `SELECT so.id, so.party_id, eup.party_code
+             FROM sap_sync_logs l
+             JOIN sales_orders so ON so.id = l.order_id
+             LEFT JOIN external_user_profiles eup ON eup.id = so.party_id
+            WHERE l.status = 'success'
+              AND (l.sap_doc_num = ?${docEntrySo ? ' OR l.sap_doc_entry = ?' : ''})
+            ORDER BY l.attempted_at DESC
+            LIMIT 1`,
+          docEntrySo ? [docNumberSo, docEntrySo] : [docNumberSo]
+        );
+        existing = logRow[0];
+      }
       if (!existing.length) {
         throw new NotFoundError(
           `No sales order with sap_order_number '${docNumberSo}' — cannot record invoice. Sync SO + DO first, then re-push the invoice.`
