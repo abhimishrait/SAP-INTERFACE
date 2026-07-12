@@ -1,9 +1,25 @@
-// 3.14 Delivery Order → sales_orders + order_items.
-// SAP delivers; we flip the SO to status 'delivered' (matches Django's
-// lowercase STATUS_CHOICES token) and stamp the SAP doc references so the
-// order can be reconciled. Keeping the value lowercase is important — the
-// DMS FE lowercases before matching, so writing 'DELIVERED' silently
-// falls through to the default (grey / empty) pill styling.
+// 3.14 Delivery Order → delivery_orders + delivery_order_lines + stock_transactions.
+//
+// SAP posts a DO for an SO that already exists in DMS (created via portal or
+// synced via SAP outbound). We write the DO header + lines, auto-generate a
+// stock-in transaction, and RE-COMPUTE the SO's status from cumulative
+// delivery_order_lines vs order_items(is_scheme_item=0). Multiple DOs per SO
+// (partial delivery, split-per-production-unit) are supported natively:
+// each DO is idempotent on sap_do_entry.
+//
+// Explicitly NOT touched by this handler:
+//   • sales_orders.order_number   — DMS-native, shown in the UI
+//   • sales_orders.subtotal / tax_amount / total_amount — derived from
+//     order_items (buy lines + scheme benefit rows); overwriting from DO
+//     totals would wipe scheme accounting.
+//   • sales_orders.order_date     — audit-only; DO date lives on delivery_orders.
+//   • order_items                 — those belong to the SO. Deleting them
+//     violates schemes_utilization.so_line PROTECT FKs and destroys scheme
+//     benefit child rows. DO lines live only on delivery_order_lines.
+//
+// Status ('delivered' vs 'partially_delivered') is Django-compatible lowercase.
+// See DeliveryOrderInboundView._update_order_status in the DMS repo for the
+// canonical algorithm this mirrors.
 const express = require('express');
 const { pool, withTx } = require('../db');
 const { ValidationError, NotFoundError, required, parseDate, toDecimal } = require('../lib/validate');
@@ -58,39 +74,71 @@ function validate(body, mode = 'create') {
   if (Object.keys(errors).length) throw new ValidationError(errors);
 }
 
-// Insert the DO's line items into an existing (or new) sales_orders row.
-async function insertOrderItems(conn, orderId, doDetails) {
-  const lines = [];
+// Resolve each DO line's product_id up-front so failures surface before any writes.
+// DOES NOT touch order_items — those belong to the SO and were written at order-create
+// time (buy lines + auto-generated scheme child rows). Overwriting them here would
+// destroy scheme benefit lines and blow up on SchemeUtilization.so_line PROTECT FKs.
+async function resolveLineProducts(doDetails) {
+  const resolved = [];
   for (const d of doDetails) {
     const productId = await findProductIdBySku(d.item_code);
     if (!productId) throw new ValidationError({ do_details: [`Product '${d.item_code}' does not exist.`] });
-    const qty = toDecimal(d.quantity);
-    const rate = toDecimal(d.rate);
-    const amount = toDecimal(d.amount);
-    const [li] = await conn.query(
-      `INSERT INTO order_items
-         (uuid, created_at, updated_at, is_active,
-          packaging_level, quantity, quantity_in_primary, rate, amount,
-          tax_rate, tax_amount, discount_percent, discount_amount, line_total,
-          qty_delivered, qty_received,
-          product_id, order_id, created_by_id, updated_by_id,
-          funded_by_snapshot, gst_treatment_applied, is_scheme_item, scheme_benefit_text)
-       VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
-               'PRIMARY', ?, ?, ?, ?,
-               0, 0, 0, 0, ?,
-               ?, 0,
-               ?, ?, ?, ?,
-               'COMPANY', 'EXCLUSIVE', 0, '')`,
-      [qty, Math.round(qty), rate, amount, amount,
-        Math.round(qty),
-        productId, orderId, cfg.systemUserId, cfg.systemUserId]
-    );
-    lines.push({ id: li.insertId, item_code: d.item_code });
+    resolved.push({ product_id: productId, item_code: d.item_code });
   }
-  return lines;
+  return resolved;
 }
 
-router.post('/', async (req, res, next) => {
+// After the DO + its lines are persisted, compute the SO's new status the same
+// way Django's DeliveryOrderInboundView._update_order_status does:
+//   • ordered qty per SKU = SUM(order_items.quantity) WHERE is_scheme_item=0
+//   • dispatched qty per SKU = SUM(delivery_order_lines.quantity) across ALL DOs for the SO
+//   • fully_delivered = every ordered SKU's dispatched >= ordered
+// Returns { newStatus, orderedBySku, dispatchedBySku } for logging.
+async function computeSoStatus(conn, orderId) {
+  const [ordered] = await conn.query(
+    `SELECT p.sku_code AS sku, oi.quantity AS qty
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+      WHERE oi.order_id = ? AND oi.is_scheme_item = 0`,
+    [orderId]
+  );
+  const orderedBySku = {};
+  for (const r of ordered) {
+    orderedBySku[r.sku] = (orderedBySku[r.sku] || 0) + Number(r.qty);
+  }
+
+  const [dispatched] = await conn.query(
+    `SELECT dol.item_code AS sku, dol.quantity AS qty
+       FROM delivery_order_lines dol
+       JOIN delivery_orders do_hdr ON do_hdr.id = dol.delivery_order_id
+      WHERE do_hdr.order_id = ?`,
+    [orderId]
+  );
+  const dispatchedBySku = {};
+  for (const r of dispatched) {
+    dispatchedBySku[r.sku] = (dispatchedBySku[r.sku] || 0) + Number(r.qty);
+  }
+
+  const skuList = Object.keys(orderedBySku);
+  let fullyDelivered = skuList.length > 0;
+  for (const sku of skuList) {
+    if ((dispatchedBySku[sku] || 0) < orderedBySku[sku]) {
+      fullyDelivered = false;
+      break;
+    }
+  }
+  return {
+    newStatus: fullyDelivered ? 'delivered' : 'partially_delivered',
+    orderedBySku,
+    dispatchedBySku,
+  };
+}
+
+// Shared handler used by both POST /sap/delivery-order/ and PUT /:id/.
+// Idempotency: the DO's identity is `sap_do_entry` (unique on delivery_orders).
+// Repeat calls with the same sap_do_entry replace the DO's lines + reverse the
+// prior stock-in, so retries can never double-count inventory.
+async function handleDoUpsert(req, res, next) {
   try {
     validate(req.body);
 
@@ -104,27 +152,27 @@ router.post('/', async (req, res, next) => {
       const docNumberSo = String(req.body.doc_number_so).trim();
       const docEntry    = parseInt(req.body.doc_entry, 10) || null;
       const [existing]  = await conn.query(
-        `SELECT id, party_id FROM sales_orders WHERE sap_order_number = ? LIMIT 1`,
+        `SELECT id, party_id, status FROM sales_orders WHERE sap_order_number = ? LIMIT 1`,
         [docNumberSo]
       );
 
       let orderId;
-      let mode;
+      let currentStatus;
       if (existing.length) {
-        // UPDATE — DO fulfils a known SO
+        // DO fulfils a known SO. Stamp SAP sync metadata + append DO ref to remarks.
+        // Deliberately DO NOT touch:
+        //   • order_number  — that's the DMS-native SO number the UI already displays
+        //   • subtotal / tax_amount / total_amount — those are derived from order_items
+        //     (buy lines + scheme child rows). Overwriting them from DO totals would
+        //     wipe scheme benefit accounting.
+        //   • order_date — the SO's original order date must stay for audit; the DO's
+        //     do_date is stored separately on delivery_orders.
+        //   • status — computed below from cumulative dispatched vs ordered qty.
         orderId = existing[0].id;
-        mode = 'updated';
-        // NOTE: we deliberately do NOT overwrite `order_number` — that's the
-        // DMS-native SO number (e.g. SO-2026-0007) that the UI already displays.
-        // The SAP-side do_number lives in `remarks` alongside do_entry.
+        currentStatus = existing[0].status;
         await conn.query(
           `UPDATE sales_orders SET
-             order_date         = ?,
-             status             = 'delivered',
-             subtotal           = ?,
-             tax_amount         = ?,
-             total_amount       = ?,
-             sap_doc_entry      = ?,
+             sap_doc_entry      = COALESCE(?, sap_doc_entry),
              sap_sync_status    = 'synced',
              sap_synced_at      = NOW(6),
              sap_synced_by_id   = ?,
@@ -133,10 +181,6 @@ router.post('/', async (req, res, next) => {
              remarks            = CONCAT_WS(' | ', NULLIF(remarks, ''), ?)
            WHERE id = ?`,
           [
-            parseDate(req.body.do_date),
-            toDecimal(req.body.do_amount),
-            toDecimal(req.body.do_tax),
-            toDecimal(req.body.do_total),
             docEntry,
             cfg.systemUserId,
             cfg.systemUserId,
@@ -144,8 +188,6 @@ router.post('/', async (req, res, next) => {
             orderId,
           ]
         );
-        // Replace the SO's lines with the DO's lines
-        await conn.query(`DELETE FROM order_items WHERE order_id = ?`, [orderId]);
       } else {
         // No SO with that sap_order_number — the DO arrived before the SO was
         // synced. Reject with a clear error rather than misattributing the DO
@@ -155,7 +197,9 @@ router.post('/', async (req, res, next) => {
         });
       }
 
-      const lines = await insertOrderItems(conn, orderId, req.body.do_details);
+      // Resolve product IDs for every DO line (no order_items writes — DO lines
+      // live only on delivery_order_lines below).
+      const lines = await resolveLineProducts(req.body.do_details);
 
       // ── delivery_orders header + lines ────────────────────────
       // The DMS FE reads has_delivery_order via
@@ -413,6 +457,40 @@ router.post('/', async (req, res, next) => {
         [stockTxnId, deliveryOrderId]
       );
 
+      // Compute the SO's new status from cumulative delivery_order_lines vs
+      // ordered qty per SKU. Multi-DO scenarios (partial delivery, split by
+      // production unit) work correctly here because every previously-inserted
+      // DO's lines already exist and are summed with the current one.
+      // Terminal states (cancelled/closed) are preserved.
+      let statusChanged = false;
+      let newStatus = currentStatus;
+      if (currentStatus !== 'cancelled' && currentStatus !== 'closed') {
+        const { newStatus: computed } = await computeSoStatus(conn, orderId);
+        if (computed !== currentStatus) {
+          await conn.query(
+            `UPDATE sales_orders SET status = ?, updated_at = NOW(6), updated_by_id = ? WHERE id = ?`,
+            [computed, cfg.systemUserId, orderId]
+          );
+          // Audit trail row so the SO history in the UI reflects who/why.
+          await conn.query(
+            `INSERT INTO order_status_history
+               (uuid, created_at, updated_at, is_active,
+                created_by_id, updated_by_id, changed_by_id,
+                order_id, from_status, to_status, remarks)
+             VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                     ?, ?, ?,
+                     ?, ?, ?, ?)`,
+            [
+              cfg.systemUserId, cfg.systemUserId, cfg.systemUserId,
+              orderId, currentStatus, computed,
+              `Auto: SAP DO ${req.body.do_number} received (do_entry=${req.body.do_entry})`,
+            ]
+          );
+          statusChanged = true;
+          newStatus = computed;
+        }
+      }
+
       await conn.query(
         `INSERT INTO sap_sync_logs
           (uuid, created_at, updated_at, is_active, status, sap_doc_entry, sap_doc_num,
@@ -422,51 +500,60 @@ router.post('/', async (req, res, next) => {
       );
 
       return {
-        id: orderId, mode, party_id: partyId, lines,
+        id: orderId,
+        mode: doExisting.length ? 'do_updated' : 'do_created',
+        party_id: partyId,
+        lines,
         delivery_order_id: deliveryOrderId,
         stock_transaction_number: txnNumber,
+        so_status: newStatus,
+        so_status_changed: statusChanged,
       };
     });
 
-    res.status(out.mode === 'updated' ? 200 : 201).json({
+    res.status(out.mode === 'do_updated' ? 200 : 201).json({
       ...out,
       do_entry: req.body.do_entry,
       do_number: req.body.do_number,
       doc_entry: req.body.doc_entry,
       doc_number_so: req.body.doc_number_so,
-      message: out.mode === 'updated'
-        ? 'Delivery Order recorded on existing sales order.'
+      message: out.mode === 'do_updated'
+        ? 'Delivery Order updated on existing sales order.'
         : 'Delivery Order created successfully',
     });
   } catch (e) { next(e); }
-});
+}
 
+router.post('/', handleDoUpsert);
+
+// PUT — SAP re-push of the same DO. Contract: the URL :id was originally the
+// sales_orders.id, but the DO's own identity is sap_do_entry (unique per DO).
+// A single SO can have many DOs (partial delivery, split by production unit),
+// so we let the body's sap_do_entry drive the upsert and treat :id as a
+// consistency check: the resolved SO must match. Behaviour is otherwise
+// identical to POST — same status recomputation, same stock reversal, same
+// delivery_order_lines replace-all semantics on the matching DO.
 router.put('/:id/', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const [exists] = await pool.query(`SELECT id FROM sales_orders WHERE id = ? LIMIT 1`, [id]);
+    const [exists] = await pool.query(`SELECT id, sap_order_number FROM sales_orders WHERE id = ? LIMIT 1`, [id]);
     if (!exists.length) throw new NotFoundError();
-    // PUT is partial — only validate fields that were sent.
-    validate(req.body, 'update');
 
-    await withTx(async (conn) => {
-      const sets = [];
-      const params = [];
-      if (req.body.do_amount !== undefined) { sets.push('subtotal = ?'); params.push(toDecimal(req.body.do_amount)); }
-      if (req.body.do_tax !== undefined) { sets.push('tax_amount = ?'); params.push(toDecimal(req.body.do_tax)); }
-      if (req.body.do_total !== undefined) { sets.push('total_amount = ?'); params.push(toDecimal(req.body.do_total)); }
-      if (req.body.do_date !== undefined) { sets.push('order_date = ?'); params.push(parseDate(req.body.do_date)); }
-      if (sets.length) {
-        sets.push('updated_at = NOW(6)', 'updated_by_id = ?'); params.push(cfg.systemUserId, id);
-        await conn.query(`UPDATE sales_orders SET ${sets.join(', ')} WHERE id = ?`, params);
-      }
-      if (Array.isArray(req.body.do_details) && req.body.do_details.length) {
-        // PUT replaces all lines (per spec).
-        await conn.query(`DELETE FROM order_items WHERE order_id = ?`, [id]);
-        await insertOrderItems(conn, id, req.body.do_details);
-      }
-    });
-    res.status(200).json({ id, message: 'Record updated successfully' });
+    // Force full-body validation — a PUT-replace still needs every field the
+    // handler references, so falling back to 'update' mode masked missing
+    // required fields and produced silent corruption on partial payloads.
+    validate(req.body, 'create');
+
+    // Sanity: if body carries doc_number_so, it must match the URL's SO to
+    // avoid cross-SO writes.
+    if (req.body.doc_number_so && String(req.body.doc_number_so).trim() !== exists[0].sap_order_number) {
+      throw new ValidationError({
+        doc_number_so: [`doc_number_so does not match sap_order_number of sales_order id=${id}.`],
+      });
+    }
+
+    // Delegate to the shared upsert handler — identical behavior to POST.
+    return handleDoUpsert(req, res, next);
   } catch (e) { next(e); }
 });
 
