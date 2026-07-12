@@ -17,10 +17,21 @@ router.put('/', async (req, res, next) => {
     const docEntry = parseInt(req.body.doc_entry, 10);
     if (!Number.isFinite(docEntry)) throw new ValidationError({ doc_entry: ['Must be numeric.'] });
 
+    // Multi-production-unit orders: the 2nd/3rd/… push's DocEntry +
+    // DocNum are only in sap_sync_logs (sales_orders holds the first
+    // push only). Match via either table so status updates land on
+    // the right SO regardless of which SAP order fired the event.
+    const docNumberSo = String(req.body.doc_number_so);
     const [orders] = await pool.query(
-      `SELECT id, status FROM sales_orders
-        WHERE sap_doc_entry = ? AND sap_order_number = ? LIMIT 1`,
-      [docEntry, req.body.doc_number_so]
+      `SELECT so.id, so.status FROM sales_orders so
+        WHERE (so.sap_doc_entry = ? AND so.sap_order_number = ?)
+           OR so.id IN (
+                SELECT order_id FROM sap_sync_logs
+                 WHERE status = 'success'
+                   AND sap_doc_entry = ? AND sap_doc_num = ?
+              )
+        LIMIT 1`,
+      [docEntry, docNumberSo, docEntry, docNumberSo]
     );
     if (!orders.length) throw new NotFoundError('Sales order not found.');
 

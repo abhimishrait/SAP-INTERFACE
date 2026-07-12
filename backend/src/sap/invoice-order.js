@@ -75,15 +75,26 @@ router.post('/', async (req, res, next) => {
     const out = await withTx(async (conn) => {
       const docNumberSo = String(req.body.doc_number_so).trim();
       const cardCode    = String(req.body.card_code).trim();
+      const docEntrySo  = parseInt(req.body.doc_entry_so, 10) || null;
 
       // Locate the existing SO — invoices always follow an order in DMS.
+      // Multi-production-unit orders: DMS pushes one SO to SAP per
+      // production unit, so the 2nd/3rd/… SAP doc_number_so isn't on
+      // sales_orders.sap_order_number (that column only holds the first
+      // push). Fall back through sap_sync_logs which records every push.
       const [existing] = await conn.query(
         `SELECT so.id, so.party_id, eup.party_code
            FROM sales_orders so
            LEFT JOIN external_user_profiles eup ON eup.id = so.party_id
           WHERE so.sap_order_number = ?
+             OR (? IS NOT NULL AND so.sap_doc_entry = ?)
+             OR so.id IN (
+                  SELECT order_id FROM sap_sync_logs
+                   WHERE status = 'success'
+                     AND (sap_doc_num = ? OR (? IS NOT NULL AND sap_doc_entry = ?))
+                )
           LIMIT 1`,
-        [docNumberSo]
+        [docNumberSo, docEntrySo, docEntrySo, docNumberSo, docEntrySo, docEntrySo]
       );
       if (!existing.length) {
         throw new NotFoundError(

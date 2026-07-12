@@ -151,9 +151,24 @@ async function handleDoUpsert(req, res, next) {
       // here and misassign every DO.
       const docNumberSo = String(req.body.doc_number_so).trim();
       const docEntry    = parseInt(req.body.doc_entry, 10) || null;
+      // Multi-production-unit orders: DMS pushes one SO to SAP per
+      // production unit and gets N distinct DocNums back. Only the
+      // FIRST push's DocNum lands on sales_orders.sap_order_number;
+      // every push is recorded in sap_sync_logs with its own
+      // sap_doc_num / sap_doc_entry. Match via either table so DOs
+      // for the 2nd/3rd/… PU still resolve to their parent SO.
       const [existing]  = await conn.query(
-        `SELECT id, party_id, status FROM sales_orders WHERE sap_order_number = ? LIMIT 1`,
-        [docNumberSo]
+        `SELECT so.id, so.party_id, so.status
+           FROM sales_orders so
+          WHERE so.sap_order_number = ?
+             OR (? IS NOT NULL AND so.sap_doc_entry = ?)
+             OR so.id IN (
+                  SELECT order_id FROM sap_sync_logs
+                   WHERE status = 'success'
+                     AND (sap_doc_num = ? OR (? IS NOT NULL AND sap_doc_entry = ?))
+                )
+          LIMIT 1`,
+        [docNumberSo, docEntry, docEntry, docNumberSo, docEntry, docEntry]
       );
 
       let orderId;
@@ -544,12 +559,25 @@ router.put('/:id/', async (req, res, next) => {
     // required fields and produced silent corruption on partial payloads.
     validate(req.body, 'create');
 
-    // Sanity: if body carries doc_number_so, it must match the URL's SO to
-    // avoid cross-SO writes.
-    if (req.body.doc_number_so && String(req.body.doc_number_so).trim() !== exists[0].sap_order_number) {
-      throw new ValidationError({
-        doc_number_so: [`doc_number_so does not match sap_order_number of sales_order id=${id}.`],
-      });
+    // Sanity: if body carries doc_number_so, it must reference the URL's SO
+    // to avoid cross-SO writes. Multi-production-unit SOs have multiple
+    // valid SAP DocNums (one per push, tracked in sap_sync_logs); accept
+    // any of them, not just the one stored on sales_orders.sap_order_number.
+    if (req.body.doc_number_so) {
+      const provided = String(req.body.doc_number_so).trim();
+      if (provided !== exists[0].sap_order_number) {
+        const [logMatch] = await pool.query(
+          `SELECT 1 FROM sap_sync_logs
+            WHERE order_id = ? AND status = 'success' AND sap_doc_num = ?
+            LIMIT 1`,
+          [id, provided]
+        );
+        if (!logMatch.length) {
+          throw new ValidationError({
+            doc_number_so: [`doc_number_so does not match any SAP DocNum on sales_order id=${id}.`],
+          });
+        }
+      }
     }
 
     // Delegate to the shared upsert handler — identical behavior to POST.
