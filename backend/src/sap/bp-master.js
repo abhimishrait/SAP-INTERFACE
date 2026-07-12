@@ -51,6 +51,13 @@ async function validatePayload(body, { mode, partyId }) {
   if (body.pan_number && String(body.pan_number).length > 10) {
     errors.pan_number = ['Must be 10 characters or fewer.'];
   }
+  // Spec §3.1: credit_limit is a non-negative decimal (last-value-wins, stored on the BP row).
+  if (body.credit_limit !== undefined && body.credit_limit !== null && body.credit_limit !== '') {
+    const n = Number(body.credit_limit);
+    if (!Number.isFinite(n) || n < 0) {
+      errors.credit_limit = ['Must be a non-negative decimal.'];
+    }
+  }
   // Spec §3.1: cost_center_master is alphanumeric + space + dot, normalized to UPPER.
   if (body.cost_center_master !== undefined && body.cost_center_master !== null && body.cost_center_master !== '') {
     if (!/^[A-Za-z0-9 .]+$/.test(String(body.cost_center_master))) {
@@ -395,20 +402,27 @@ router.post('/', async (req, res, next) => {
       const ccRaw = req.body.cost_center_master ?? req.body.cost_center_code ?? '';
       const costCenterCode = String(ccRaw).trim().toUpperCase().slice(0, 50);
 
+      // credit_limit: SAP's push wins; omit → 0 (matches the DB default and
+      // avoids resetting an existing value only on create paths).
+      const creditLimit =
+        req.body.credit_limit === undefined || req.body.credit_limit === null || req.body.credit_limit === ''
+          ? 0
+          : Number(req.body.credit_limit);
+
       const [r] = await conn.query(
         `INSERT INTO external_user_profiles
            (uuid, created_at, updated_at, is_active,
             party_code, party_name, billing_relationship, date_of_joining,
             gstin, pan, status,
             user_id, position_id, department_id, organization_id, production_unit_id, price_group_id,
-            payment_term_id, cost_center_code, reporting_to_id,
+            payment_term_id, cost_center_code, credit_limit, reporting_to_id,
             date_of_birth, father_name, mother_name, gender,
             created_by_id, updated_by_id)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), ?,
                  ?, ?, 'principal_direct', ?,
                  ?, ?, ?,
                  ?, ?, ?, ?, ?, ?,
-                 ?, ?, ?,
+                 ?, ?, ?, ?,
                  ?, ?, ?, ?,
                  ?, ?)`,
         [
@@ -416,7 +430,7 @@ router.post('/', async (req, res, next) => {
           req.body.customer_code, req.body.store_name, parseDate(req.body.date_of_joining),
           req.body.vat_number, req.body.pan_number, isActive ? 'active' : 'inactive',
           userId, positionId, departmentId, orgId, productionUnitId, lookups.price_group_id || null,
-          lookups.payment_term_id || null, costCenterCode, lookups.reporting_to_id || null,
+          lookups.payment_term_id || null, costCenterCode, creditLimit, lookups.reporting_to_id || null,
           parseDate(req.body.date_of_birth) || null, null, null, gender,
           cfg.systemUserId, cfg.systemUserId,
         ]
@@ -511,6 +525,13 @@ router.put('/:id/', async (req, res, next) => {
       const ccRaw = req.body.cost_center_master ?? req.body.cost_center_code ?? '';
       sets.push('cost_center_code = ?');
       params.push(String(ccRaw).trim().toUpperCase().slice(0, 50));
+    }
+    // credit_limit: only touch when the key is in the payload — SAP sends partial
+    // PUTs and we must not zero a prior value just because the field was omitted.
+    if (req.body.credit_limit !== undefined) {
+      const raw = req.body.credit_limit;
+      sets.push('credit_limit = ?');
+      params.push(raw === null || raw === '' ? 0 : Number(raw));
     }
     for (const k of ['position_id', 'department_id', 'organization_id', 'production_unit_id', 'price_group_id', 'payment_term_id', 'reporting_to_id']) {
       if (lookups[k] !== undefined) { sets.push(`\`${k}\` = ?`); params.push(lookups[k]); }
