@@ -385,17 +385,19 @@ async function handleDoUpsert(req, res, next) {
         : 0;
       const txnNumber = `${prefix}${String(lastSeq + 1).padStart(4, '0')}`;
 
+      // `source` is NOT NULL on stock_transactions with no DB default; DMS uses
+      // 'do_stock_in' for DO-driven auto stock-ins (verified against existing rows).
       const [txnInsert] = await conn.query(
         `INSERT INTO stock_transactions
            (uuid, created_at, updated_at, is_active,
             created_by_id, updated_by_id,
-            transaction_number, transaction_type, transaction_date,
+            transaction_number, transaction_type, source, transaction_date,
             order_id, party_id,
             grn_number, invoice_number, invoice_date,
             remarks)
          VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
                  ?, ?,
-                 ?, 'stock_in', ?,
+                 ?, 'stock_in', 'do_stock_in', ?,
                  ?, ?,
                  ?, ?, ?,
                  ?)`,
