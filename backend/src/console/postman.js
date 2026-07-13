@@ -86,7 +86,7 @@ const SAMPLES = {
     do_details: [{ item_code: 'SKU001', rate: '100.00', quantity: '50', uom: 'PCS', batch_number: 'B001', mfg_date: '2026-01-01', expiry_date: '2026-06-01', amount: '5000.00' }],
   },
   'balance-status-update': { party_code: 'PARTY001', updated_amount: 1500.5 },
-  'order-status-sync':     { doc_entry: 'DOC001', doc_number_so: 'DOC-SO-001', status: 'Cancel' },
+  'order-status-sync':     { doc_entry: 'DOC001', doc_number_so: 'DOC-SO-001', status: 'Close' },
   'return-request': {
     CardCode: '614502345',
     DocDate: '2026-02-06', DocDueDate: '2026-02-28', TaxDate: '2026-02-06',

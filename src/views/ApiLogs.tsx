@@ -244,6 +244,7 @@ function TabDbWrites({ tx }: { tx: Transaction }) {
   const moduleTable = ({
     'bp-master': 'bp_master',
     'delivery-order': 'delivery_order',
+    'free-order-delivery': 'free_order_receipts + stock_transactions + stock_levels',
     'products': 'products',
     'blanket-agreement': 'blanket_agreement',
     'price-list': 'price_list',

@@ -178,12 +178,12 @@ const MODULES = [
   },
   {
     id: 'order-status-sync', code: '3.16', label: 'Order Status Sync',
-    desc: 'SO status: Cancel / Close / Open',
+    desc: 'SO status: Close only',
     path: '/sap/order-status-sync/', methods: ['PUT'],
     rps: 1.6, errRate: 0.4, kind: 'transaction',
     rules: [
       'doc_entry and doc_number_so must reference existing Sales Order',
-      'status required. Supported: Cancel, Close, Open',
+      'status required. Only Close / Closed is accepted — Cancel / Open return 400',
       'All three fields are required — missing any returns 400',
     ],
   },
@@ -348,9 +348,7 @@ const STATUS_MAPPING = [
   { input: '0', interpreted: 'Inactive', desc: 'Numeric equivalent of N' },
   { input: 'A / Approved', interpreted: 'Active', desc: 'Blanket Agreement approved' },
   { input: 'T / Terminated', interpreted: 'Inactive', desc: 'Blanket Agreement terminated' },
-  { input: 'Cancel / Cancelled', interpreted: 'CANCELLED', desc: 'Order Status Sync' },
-  { input: 'Close / Closed', interpreted: 'CLOSED', desc: 'Order Status Sync' },
-  { input: 'Open / Pending / Approved', interpreted: 'OPEN', desc: 'Order Status Sync' },
+  { input: 'Close / Closed / Completed', interpreted: 'closed', desc: 'Order Status Sync (only accepted value)' },
 ];
 
 // ── HTTP RESPONSE CODES from spec 2.6 ──────────────────────────────────────
@@ -624,12 +622,12 @@ const SAMPLE_PAYLOADS = {
     request: `{
   "doc_entry": "DOC001",
   "doc_number_so": "DOC-SO-001",
-  "status": "Cancel"
+  "status": "Close"
 }`,
     response: `{
   "doc_entry": "DOC001",
   "doc_number_so": "DOC-SO-001",
-  "order_status": "CANCELLED",
+  "order_status": "closed",
   "updated_at": "2026-05-22T11:42:18.123+05:45"
 }`,
   },

@@ -11,8 +11,11 @@ router.put('/', async (req, res, next) => {
   try {
     required(req.body, ['doc_entry', 'doc_number_so', 'status']);
     const newStatus = toOrderStatus(req.body.status);
-    if (!newStatus) {
-      throw new ValidationError({ status: ['Supported values: Cancel, Close, Open (or their long forms).'] });
+    // Business rule: this endpoint is restricted to Close only. Cancel/Open
+    // are rejected — DMS treats cancellation and re-open as separate flows
+    // that must not be triggered by a generic status-sync push.
+    if (newStatus !== 'closed') {
+      throw new ValidationError({ status: ['Only Close / Closed is accepted on this endpoint.'] });
     }
     const docEntry = parseInt(req.body.doc_entry, 10);
     if (!Number.isFinite(docEntry)) throw new ValidationError({ doc_entry: ['Must be numeric.'] });

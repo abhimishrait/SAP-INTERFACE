@@ -206,6 +206,26 @@ export const MODULES: Module[] = [
       'Status supports Y/N or 1/0',
     ],
   },
+  {
+    id: 'free-order-delivery', code: 'EXT', label: 'Free Order Delivery',
+    desc: 'Blanket-agreement reward DO — standalone, no linked SO',
+    path: '/sap/free-order-delivery/', methods: ['POST', 'PUT'],
+    rps: 0.05, errRate: 0.2, kind: 'transaction',
+    rules: [
+      'bp_code, sap_do_number, sap_do_entry, do_date, do_details are required',
+      'bp_code must reference an existing dealer (external_user_profiles.party_code)',
+      'sap_do_number is unique — repeat POST returns 400 (use PUT to update)',
+      'do_amount / do_tax / do_total default to 0 and cannot be negative (free receipts typically post as 0)',
+      'blanket_agreement_no is optional — the SAP AgreementNo the reward was earned against',
+      'do_details must have at least one line; item_code must reference an existing product SKU',
+      'quantity must be > 0; rate and amount default to 0 and cannot be negative',
+      'expiry_date cannot be before mfg_date',
+      'Same (item_code, batch_number) cannot appear twice within a single receipt',
+      'On PUT: existing lines are replaced and the prior stock-in is reversed before re-applying',
+      'Side effect: stock_transactions row (order_id=NULL, source=free_order_receipt) + stock_transaction_items + stock_levels increment per (party, product, batch)',
+      'No sales_order is created or touched — free-order receipts stand alone',
+    ],
+  },
 ];
 
 export const MODULE_BY_ID: Record<string, Module> = Object.fromEntries(MODULES.map(m => [m.id, m]));
@@ -424,6 +444,26 @@ export const MAPPINGS_BY_MODULE: Record<string, FieldMapping[]> = {
     { sap: 'short_name', sapType: 'string(50)', sapDesc: 'Short name (optional)', dms: 'channels.short_name', dmsType: 'string?', dmsDesc: 'Short name', xform: 'direct', status: 'mapped', confidence: 100, required: false },
     { sap: 'description', sapType: 'text', sapDesc: 'Description (optional)', dms: 'channels.description', dmsType: 'longtext?', dmsDesc: 'Description', xform: 'direct', status: 'mapped', confidence: 100, required: false },
     { sap: 'status', sapType: 'string(1)', sapDesc: 'Y/N or 1/0', dms: 'is_active', dmsType: 'boolean', dmsDesc: 'Active', xform: 'statusMap', status: 'mapped', confidence: 100, required: true },
+  ],
+  'free-order-delivery': [
+    { sap: 'bp_code', sapType: 'string(20)', sapDesc: 'Dealer party_code (must exist)', dms: 'free_order_receipts.party_id', dmsType: 'FK', dmsDesc: 'FK → external_user_profiles', xform: 'lookup · 400 if unknown', status: 'mapped', confidence: 100, required: true },
+    { sap: 'sap_do_number', sapType: 'string(50)', sapDesc: 'SAP DO number (unique)', dms: 'free_order_receipts.sap_do_number', dmsType: 'string PK', dmsDesc: 'Idempotency key', xform: 'direct · unique', status: 'mapped', confidence: 100, required: true },
+    { sap: 'sap_do_entry', sapType: 'string(50)', sapDesc: 'SAP DO entry', dms: 'free_order_receipts.sap_do_entry', dmsType: 'string', dmsDesc: 'SAP ref', xform: 'direct', status: 'mapped', confidence: 100, required: true },
+    { sap: 'blanket_agreement_no', sapType: 'int', sapDesc: 'SAP AgreementNo the reward is against', dms: 'free_order_receipts.blanket_agreement_no', dmsType: 'int?', dmsDesc: 'Agreement ref', xform: 'parseInt', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_date', sapType: 'string', sapDesc: 'Delivery date', dms: 'free_order_receipts.do_date', dmsType: 'date', dmsDesc: 'YYYY-MM-DD', xform: 'parseISO8601', status: 'mapped', confidence: 100, required: true },
+    { sap: 'invoice_number', sapType: 'string(50)', sapDesc: 'Invoice reference', dms: 'free_order_receipts.invoice_number', dmsType: 'string?', dmsDesc: 'Invoice', xform: 'direct', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_amount', sapType: 'decimal', sapDesc: 'Notional value (≥0, typically 0)', dms: 'free_order_receipts.do_amount', dmsType: 'decimal', dmsDesc: 'Notional', xform: 'toDecimal · default(0) · validate(≥0)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_tax', sapType: 'decimal', sapDesc: 'Tax (≥0)', dms: 'free_order_receipts.do_tax', dmsType: 'decimal', dmsDesc: 'Tax', xform: 'toDecimal · default(0) · validate(≥0)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_total', sapType: 'decimal', sapDesc: 'Total (≥0)', dms: 'free_order_receipts.do_total', dmsType: 'decimal', dmsDesc: 'Total', xform: 'toDecimal · default(0) · validate(≥0)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'remarks', sapType: 'string', sapDesc: 'Free-text note (optional)', dms: 'free_order_receipts.remarks', dmsType: 'text?', dmsDesc: 'Note', xform: 'direct · truncate(5000)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_details[].item_code', sapType: 'string(50)', sapDesc: 'SKU (must exist)', dms: 'free_order_receipt_lines.item_code / product_id', dmsType: 'FK', dmsDesc: 'FK → products', xform: 'lookup(sku_code)', status: 'mapped', confidence: 99, required: true },
+    { sap: 'do_details[].quantity', sapType: 'decimal', sapDesc: 'Qty (> 0)', dms: 'free_order_receipt_lines.quantity', dmsType: 'decimal', dmsDesc: 'Qty', xform: 'toDecimal · validate(>0)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'do_details[].uom', sapType: 'string(20)', sapDesc: 'UoM', dms: 'free_order_receipt_lines.uom', dmsType: 'string', dmsDesc: 'UoM', xform: 'direct · default(CTN)', status: 'mapped', confidence: 100, required: true },
+    { sap: 'do_details[].rate', sapType: 'decimal', sapDesc: 'Unit rate (≥0, typically 0)', dms: 'free_order_receipt_lines.rate', dmsType: 'decimal', dmsDesc: 'Rate', xform: 'toDecimal · default(0)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_details[].amount', sapType: 'decimal', sapDesc: 'Line amount (≥0, typically 0)', dms: 'free_order_receipt_lines.amount', dmsType: 'decimal', dmsDesc: 'Amount', xform: 'toDecimal · default(0)', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_details[].batch_number', sapType: 'string(100)', sapDesc: 'Batch (drives stock_levels FEFO)', dms: 'free_order_receipt_lines.batch_number', dmsType: 'string?', dmsDesc: 'Batch', xform: 'direct · used as stock_levels key', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_details[].mfg_date', sapType: 'string', sapDesc: 'Mfg date', dms: 'free_order_receipt_lines.mfg_date', dmsType: 'date?', dmsDesc: 'Mfg', xform: 'parseISO8601', status: 'mapped', confidence: 100, required: false },
+    { sap: 'do_details[].expiry_date', sapType: 'string', sapDesc: 'Expiry (≥ mfg)', dms: 'free_order_receipt_lines.expiry_date', dmsType: 'date?', dmsDesc: 'Expiry', xform: 'parseISO8601 · validate(≥ mfg)', status: 'mapped', confidence: 100, required: false },
   ],
 };
 
@@ -972,6 +1012,54 @@ export const SAMPLE_PAYLOADS: Record<string, { request: string; response: string
   "doc_entry_so": "23047",
   "status": "INVOICED",
   "message": "Invoice recorded on sales order."
+}`,
+  },
+  'free-order-delivery': {
+    request: `{
+  "bp_code": "302025794",
+  "sap_do_number": "DO-2026-99872",
+  "sap_do_entry": "99872",
+  "blanket_agreement_no": 31438,
+  "do_date": "2026-07-13",
+  "invoice_number": "INV-2026-99872",
+  "do_amount": "0",
+  "do_tax": "0",
+  "do_total": "0",
+  "remarks": "Q2 Blanket Agreement reward — Free Order elected by dealer",
+  "do_details": [
+    {
+      "item_code": "FG201006",
+      "rate": "0",
+      "quantity": "20",
+      "uom": "CTN",
+      "batch_number": "BATCH-XYZ-01",
+      "mfg_date": "2026-05-01",
+      "expiry_date": "2027-05-01",
+      "amount": "0"
+    },
+    {
+      "item_code": "FG102010",
+      "rate": "0",
+      "quantity": "10",
+      "uom": "CTN",
+      "batch_number": "BATCH-XYZ-02",
+      "mfg_date": "2026-06-01",
+      "expiry_date": "2027-06-01",
+      "amount": "0"
+    }
+  ]
+}`,
+    response: `{
+  "id": 12,
+  "mode": "receipt_created",
+  "party_id": 823,
+  "bp_code": "302025794",
+  "sap_do_number": "DO-2026-99872",
+  "sap_do_entry": "99872",
+  "blanket_agreement_no": 31438,
+  "line_count": 2,
+  "stock_transaction_number": "SI-2026-0127",
+  "message": "Free Order Receipt created — stock added to dealer inventory."
 }`,
   },
 };
