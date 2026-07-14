@@ -1,25 +1,34 @@
-// 3.14 Delivery Order → delivery_orders + delivery_order_lines + stock_transactions.
+// 3.14 Delivery Order — ONE endpoint, TWO shapes.
 //
-// SAP posts a DO for an SO that already exists in DMS (created via portal or
-// synced via SAP outbound). We write the DO header + lines, auto-generate a
-// stock-in transaction, and RE-COMPUTE the SO's status from cumulative
-// delivery_order_lines vs order_items(is_scheme_item=0). Multiple DOs per SO
-// (partial delivery, split-per-production-unit) are supported natively:
-// each DO is idempotent on sap_do_entry.
+// Shape 1: DO against a Sales Order  (paid dispatch)
+//   Payload carries `doc_number_so` (+ `doc_entry`), which must resolve to an
+//   existing SO on the DMS side. Writes to delivery_orders + delivery_order_lines,
+//   auto-generates a stock-in, and RE-COMPUTES the SO's status from cumulative
+//   dispatched vs ordered qty. Multiple DOs per SO (partial delivery, split by
+//   production unit) are supported natively; each is idempotent on sap_do_entry.
 //
-// Explicitly NOT touched by this handler:
-//   • sales_orders.order_number   — DMS-native, shown in the UI
-//   • sales_orders.subtotal / tax_amount / total_amount — derived from
-//     order_items (buy lines + scheme benefit rows); overwriting from DO
-//     totals would wipe scheme accounting.
-//   • sales_orders.order_date     — audit-only; DO date lives on delivery_orders.
-//   • order_items                 — those belong to the SO. Deleting them
-//     violates schemes_utilization.so_line PROTECT FKs and destroys scheme
-//     benefit child rows. DO lines live only on delivery_order_lines.
+// Shape 2: DO without a Sales Order  (Blanket Agreement reward — free order)
+//   Payload has NO `doc_number_so`; it carries `bp_code` to identify the
+//   receiving dealer, and optionally `blanket_agreement_no` to link it back
+//   to the SAP AgreementNo the reward was earned against. Writes to
+//   free_order_receipts + free_order_receipt_lines instead, and creates a
+//   stock-in with `order_id=NULL` and `source='free_order_receipt'`. No SO
+//   is created or touched.
+//
+// The endpoint auto-detects which shape it received via `doc_number_so`
+// presence, so SAP only ever hits `/sap/delivery-order/` — the integrator
+// hides the branching from the SAP side.
+//
+// Explicitly NOT touched in either shape:
+//   • sales_orders.order_number, .subtotal, .tax_amount, .total_amount,
+//     .order_date — DMS-native / derived from order_items.
+//   • order_items — those belong to the SO (paid path) or don't exist
+//     (free path). DO lines live on delivery_order_lines /
+//     free_order_receipt_lines only.
 //
 // Status ('delivered' vs 'partially_delivered') is Django-compatible lowercase.
 // See DeliveryOrderInboundView._update_order_status in the DMS repo for the
-// canonical algorithm this mirrors.
+// canonical algorithm the paid path mirrors.
 const express = require('express');
 const { pool, withTx } = require('../db');
 const { ValidationError, NotFoundError, required, parseDate, toDecimal } = require('../lib/validate');
@@ -32,14 +41,42 @@ async function findProductIdBySku(sku) {
   return r[0]?.id || null;
 }
 
+// Detects which shape this payload is:
+//   'paid' — has `doc_number_so` (SO-linked dispatch)
+//   'free' — no `doc_number_so`; `bp_code` names the dealer directly
+// Presence-based instead of an explicit flag so SAP doesn't have to change
+// its outbound contract to opt into the free path — omitting the SO ref is
+// itself the signal, and matches the physical reality (no SO exists).
+function detectMode(body) {
+  const soRef = body && body.doc_number_so;
+  if (soRef !== undefined && soRef !== null && String(soRef).trim() !== '') {
+    return 'paid';
+  }
+  return 'free';
+}
+
 // mode === 'create' enforces the spec's required-fields list; mode === 'update'
 // only validates the fields actually present in the body so PUT can be partial.
+// The required-fields list DIFFERS between paid and free shapes — see detectMode
+// for the switch. Free-order pushes need `bp_code` in place of `doc_number_so`.
 function validate(body, mode = 'create') {
   const errors = {};
+  const shape = detectMode(body);
   if (mode === 'create') {
-    for (const f of ['do_entry', 'do_number', 'doc_entry', 'doc_number_so', 'do_date',
-      'do_amount', 'do_tax', 'do_total', 'do_details']) {
+    const requiredCommon = ['do_entry', 'do_number', 'do_date', 'do_details'];
+    const requiredPaid   = ['doc_entry', 'doc_number_so', 'do_amount', 'do_tax', 'do_total'];
+    const requiredFree   = ['bp_code'];
+    const requiredList = requiredCommon.concat(shape === 'paid' ? requiredPaid : requiredFree);
+    for (const f of requiredList) {
       if (body[f] === undefined || body[f] === null || body[f] === '') errors[f] = ['This field is required.'];
+    }
+  }
+  // Free-order-only field validations
+  if (shape === 'free' && body.blanket_agreement_no !== undefined
+      && body.blanket_agreement_no !== null && body.blanket_agreement_no !== '') {
+    const n = Number(body.blanket_agreement_no);
+    if (!Number.isFinite(n) || n < 0) {
+      errors.blanket_agreement_no = ['Must be a non-negative integer.'];
     }
   }
   for (const k of ['do_amount', 'do_tax', 'do_total']) {
@@ -134,11 +171,21 @@ async function computeSoStatus(conn, orderId) {
   };
 }
 
-// Shared handler used by both POST /sap/delivery-order/ and PUT /:id/.
+// Top-level dispatcher — routes to the paid or free handler based on
+// payload shape. Both POST and PUT go through here. `detectMode` runs on
+// the raw body so PUT with a partial payload still lands on the right
+// path (missing `doc_number_so` = free).
+async function handleDoUpsert(req, res, next) {
+  const shape = detectMode(req.body);
+  if (shape === 'free') return handleFreeOrderUpsert(req, res, next);
+  return handlePaidDoUpsert(req, res, next);
+}
+
+// Paid path: DO ties back to an existing sales_order (spec §3.14).
 // Idempotency: the DO's identity is `sap_do_entry` (unique on delivery_orders).
 // Repeat calls with the same sap_do_entry replace the DO's lines + reverse the
 // prior stock-in, so retries can never double-count inventory.
-async function handleDoUpsert(req, res, next) {
+async function handlePaidDoUpsert(req, res, next) {
   try {
     validate(req.body);
 
@@ -569,13 +616,37 @@ router.post('/', handleDoUpsert);
 router.put('/:id/', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const [exists] = await pool.query(`SELECT id, sap_order_number FROM sales_orders WHERE id = ? LIMIT 1`, [id]);
-    if (!exists.length) throw new NotFoundError();
+    const shape = detectMode(req.body);
 
-    // Force full-body validation — a PUT-replace still needs every field the
-    // handler references, so falling back to 'update' mode masked missing
-    // required fields and produced silent corruption on partial payloads.
+    // Force full-body validation on PUT — a replace still needs every
+    // field the shape's handler references. Skipping this masked
+    // silent corruption on partial payloads.
     validate(req.body, 'create');
+
+    if (shape === 'free') {
+      // Free-order PUT: :id addresses the free_order_receipts row.
+      // Sanity: body's sap_do_number must match the addressed row so
+      // the caller can't accidentally rewrite a different receipt.
+      const [exists] = await pool.query(
+        `SELECT id, sap_do_number FROM free_order_receipts WHERE id = ? LIMIT 1`,
+        [id],
+      );
+      if (!exists.length) throw new NotFoundError();
+      if (req.body.sap_do_number
+          && String(req.body.sap_do_number).trim() !== exists[0].sap_do_number) {
+        throw new ValidationError({
+          sap_do_number: [`sap_do_number does not match free_order_receipt id=${id}.`],
+        });
+      }
+      return handleFreeOrderUpsert(req, res, next);
+    }
+
+    // Paid path: :id addresses the sales_orders row.
+    const [exists] = await pool.query(
+      `SELECT id, sap_order_number FROM sales_orders WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    if (!exists.length) throw new NotFoundError();
 
     // Sanity: if body carries doc_number_so, it must reference the URL's SO
     // to avoid cross-SO writes. Multi-production-unit SOs have multiple
@@ -598,9 +669,295 @@ router.put('/:id/', async (req, res, next) => {
       }
     }
 
-    // Delegate to the shared upsert handler — identical behavior to POST.
-    return handleDoUpsert(req, res, next);
+    // Delegate to the paid upsert handler — identical behavior to POST.
+    return handlePaidDoUpsert(req, res, next);
   } catch (e) { next(e); }
 });
+
+// ═══════════════════════════════════════════════════════════════════
+//  Free-order path (no linked SO — Blanket Agreement reward)
+// ═══════════════════════════════════════════════════════════════════
+// Writes to free_order_receipts + free_order_receipt_lines instead of
+// delivery_orders. Stock-in gets `order_id=NULL` and `source='free_order_receipt'`
+// so ops can filter the ledger by cause. Kept in this file (not a
+// separate module) so SAP only hits ONE endpoint — /sap/delivery-order/
+// — and the branch is invisible to the caller.
+
+async function handleFreeOrderUpsert(req, res, next) {
+  try {
+    validate(req.body, 'create');
+
+    const out = await withTx(async (conn) => {
+      const bpCode      = String(req.body.bp_code).trim();
+      const sapDoNumber = String(req.body.do_number).trim();
+      const sapDoEntry  = String(req.body.do_entry).trim();
+
+      // 1. Resolve dealer by SAP CardCode
+      const [partyRow] = await conn.query(
+        `SELECT id FROM external_user_profiles WHERE party_code = ? LIMIT 1`,
+        [bpCode],
+      );
+      const partyId = partyRow[0]?.id;
+      if (!partyId) {
+        throw new ValidationError({ bp_code: [`No dealer found for bp_code '${bpCode}'.`] });
+      }
+
+      // 2. Resolve products up-front so unknown SKUs roll the tx back
+      const productIds = {};
+      for (const d of req.body.do_details) {
+        const pid = await findProductIdBySku(d.item_code);
+        if (!pid) {
+          throw new ValidationError({
+            do_details: [`Product '${d.item_code}' does not exist.`],
+          });
+        }
+        productIds[d.item_code] = pid;
+      }
+
+      // 3. UPSERT free_order_receipts by sap_do_number (unique)
+      const [existing] = await conn.query(
+        `SELECT id, stock_transaction_id FROM free_order_receipts WHERE sap_do_number = ? LIMIT 1`,
+        [sapDoNumber],
+      );
+      const isUpdate = existing.length > 0;
+      const doDate = parseDate(req.body.do_date);
+      const invoiceNumber = req.body.invoice_number || null;
+      const doAmount = toDecimal(req.body.do_amount) ?? 0;
+      const doTax = toDecimal(req.body.do_tax) ?? 0;
+      const doTotal = toDecimal(req.body.do_total) ?? 0;
+      const blanketAgreementNo = req.body.blanket_agreement_no != null
+        && req.body.blanket_agreement_no !== ''
+          ? parseInt(req.body.blanket_agreement_no, 10)
+          : null;
+      const remarks = String(req.body.remarks || '').slice(0, 5000);
+
+      let receiptId;
+      if (isUpdate) {
+        receiptId = existing[0].id;
+
+        // Reverse prior stock-in — decrement stock_levels per prior item,
+        // then delete the transaction rows. Keeps replays idempotent.
+        const priorTxnId = existing[0].stock_transaction_id;
+        if (priorTxnId) {
+          const [priorItems] = await conn.query(
+            `SELECT product_id, batch_number, quantity
+               FROM stock_transaction_items
+              WHERE stock_transaction_id = ?`,
+            [priorTxnId],
+          );
+          for (const it of priorItems) {
+            await conn.query(
+              `UPDATE stock_levels
+                  SET current_quantity = GREATEST(current_quantity - ?, 0),
+                      updated_at = NOW(6)
+                WHERE party_id = ? AND product_id = ? AND batch_number = ?`,
+              [it.quantity, partyId, it.product_id, it.batch_number || ''],
+            );
+          }
+          await conn.query(
+            `UPDATE free_order_receipts SET stock_transaction_id = NULL WHERE id = ?`,
+            [receiptId],
+          );
+          await conn.query(
+            `DELETE FROM stock_transaction_items WHERE stock_transaction_id = ?`,
+            [priorTxnId],
+          );
+          await conn.query(`DELETE FROM stock_transactions WHERE id = ?`, [priorTxnId]);
+        }
+
+        await conn.query(`DELETE FROM free_order_receipt_lines WHERE receipt_id = ?`, [receiptId]);
+        await conn.query(
+          `UPDATE free_order_receipts SET
+             updated_at = NOW(6), updated_by_id = ?,
+             party_id = ?, sap_do_entry = ?, blanket_agreement_no = ?,
+             do_date = ?, invoice_number = ?,
+             do_amount = ?, do_tax = ?, do_total = ?,
+             remarks = ?
+           WHERE id = ?`,
+          [
+            cfg.systemUserId,
+            partyId, sapDoEntry, blanketAgreementNo,
+            doDate, invoiceNumber,
+            doAmount, doTax, doTotal,
+            remarks, receiptId,
+          ],
+        );
+      } else {
+        const [ins] = await conn.query(
+          `INSERT INTO free_order_receipts
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id, party_id,
+              sap_do_number, sap_do_entry, blanket_agreement_no,
+              do_date, invoice_number,
+              do_amount, do_tax, do_total, remarks)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?, ?,
+                   ?, ?, ?,
+                   ?, ?,
+                   ?, ?, ?, ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId, partyId,
+            sapDoNumber, sapDoEntry, blanketAgreementNo,
+            doDate, invoiceNumber,
+            doAmount, doTax, doTotal, remarks,
+          ],
+        );
+        receiptId = ins.insertId;
+      }
+
+      // 4. Insert receipt lines (1-indexed line_number)
+      let lineNumber = 0;
+      for (const d of req.body.do_details) {
+        lineNumber += 1;
+        await conn.query(
+          `INSERT INTO free_order_receipt_lines
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id,
+              receipt_id, line_number,
+              item_code, product_id,
+              quantity, uom, rate, amount,
+              batch_number, mfg_date, expiry_date)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?,
+                   ?, ?,
+                   ?, ?,
+                   ?, ?, ?, ?,
+                   ?, ?, ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId,
+            receiptId, lineNumber,
+            d.item_code, productIds[d.item_code],
+            toDecimal(d.quantity), d.uom || 'CTN',
+            toDecimal(d.rate) ?? 0, toDecimal(d.amount) ?? 0,
+            d.batch_number || null, parseDate(d.mfg_date), parseDate(d.expiry_date),
+          ],
+        );
+      }
+
+      // 5. Generate SI-YYYY-XXXX transaction number
+      const year = new Date().getFullYear();
+      const prefix = `SI-${year}-`;
+      const [lastTxn] = await conn.query(
+        `SELECT transaction_number FROM stock_transactions
+          WHERE transaction_number LIKE ?
+          ORDER BY transaction_number DESC LIMIT 1`,
+        [`${prefix}%`],
+      );
+      const lastSeq = lastTxn[0]
+        ? parseInt(String(lastTxn[0].transaction_number).split('-').pop(), 10) || 0
+        : 0;
+      const txnNumber = `${prefix}${String(lastSeq + 1).padStart(4, '0')}`;
+
+      // 6. Insert stock_transaction — order_id=NULL, source='free_order_receipt'
+      const [txnInsert] = await conn.query(
+        `INSERT INTO stock_transactions
+           (uuid, created_at, updated_at, is_active,
+            created_by_id, updated_by_id,
+            transaction_number, transaction_type, source, transaction_date,
+            order_id, party_id,
+            grn_number, invoice_number, invoice_date, remarks)
+         VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                 ?, ?,
+                 ?, 'stock_in', 'free_order_receipt', ?,
+                 NULL, ?,
+                 ?, ?, ?, ?)`,
+        [
+          cfg.systemUserId, cfg.systemUserId,
+          txnNumber, doDate,
+          partyId,
+          sapDoNumber, invoiceNumber, doDate,
+          `Auto stock-in from SAP Free Order ${sapDoNumber}`
+            + (blanketAgreementNo ? ` (Agreement #${blanketAgreementNo})` : ''),
+        ],
+      );
+      const stockTxnId = txnInsert.insertId;
+
+      // 7. Insert items + upsert stock_levels per line
+      for (const d of req.body.do_details) {
+        const productId = productIds[d.item_code];
+        const qty = Math.round(toDecimal(d.quantity));
+        const batch = d.batch_number || '';
+        const uom = d.uom || 'CTN';
+        const mfg = parseDate(d.mfg_date);
+        const exp = parseDate(d.expiry_date);
+
+        await conn.query(
+          `INSERT INTO stock_transaction_items
+             (uuid, created_at, updated_at, is_active,
+              created_by_id, updated_by_id,
+              stock_transaction_id, product_id,
+              batch_number, uom, quantity,
+              manufacturing_date, expiry_date)
+           VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            cfg.systemUserId, cfg.systemUserId,
+            stockTxnId, productId, batch, uom, qty, mfg, exp,
+          ],
+        );
+
+        const [existingSL] = await conn.query(
+          `SELECT id, current_quantity FROM stock_levels
+            WHERE party_id = ? AND product_id = ? AND batch_number = ? LIMIT 1`,
+          [partyId, productId, batch],
+        );
+        if (existingSL.length) {
+          await conn.query(
+            `UPDATE stock_levels SET
+               current_quantity = current_quantity + ?,
+               last_stock_in_date = ?,
+               manufacturing_date = COALESCE(manufacturing_date, ?),
+               expiry_date        = COALESCE(expiry_date, ?),
+               updated_at = NOW(6), updated_by_id = ?
+             WHERE id = ?`,
+            [qty, doDate, mfg, exp, cfg.systemUserId, existingSL[0].id],
+          );
+        } else {
+          await conn.query(
+            `INSERT INTO stock_levels
+               (uuid, created_at, updated_at, is_active,
+                created_by_id, updated_by_id,
+                party_id, product_id, batch_number, uom,
+                current_quantity,
+                manufacturing_date, expiry_date, last_stock_in_date)
+             VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1,
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              cfg.systemUserId, cfg.systemUserId,
+              partyId, productId, batch, uom, qty,
+              mfg, exp, doDate,
+            ],
+          );
+        }
+      }
+
+      // 8. Link stock_transaction back to the receipt
+      await conn.query(
+        `UPDATE free_order_receipts SET stock_transaction_id = ? WHERE id = ?`,
+        [stockTxnId, receiptId],
+      );
+
+      return {
+        id: receiptId,
+        mode: isUpdate ? 'free_order_updated' : 'free_order_created',
+        shape: 'free',
+        party_id: partyId,
+        bp_code: bpCode,
+        sap_do_number: sapDoNumber,
+        sap_do_entry: sapDoEntry,
+        blanket_agreement_no: blanketAgreementNo,
+        line_count: req.body.do_details.length,
+        stock_transaction_number: txnNumber,
+      };
+    });
+
+    res.status(out.mode === 'free_order_updated' ? 200 : 201).json({
+      ...out,
+      message: out.mode === 'free_order_updated'
+        ? 'Free Order Receipt updated — stock re-applied.'
+        : 'Free Order Receipt created — stock added to dealer inventory.',
+    });
+  } catch (e) { next(e); }
+}
 
 module.exports = router;

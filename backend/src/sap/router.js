@@ -15,8 +15,11 @@ router.use('/price-list-group',     require('./price-list-group'));       // 3.1
 router.use('/price-list',           require('./price-list'));             // 3.11
 router.use('/special-price-list',   require('./special-price-list'));     // 3.12
 router.use('/products',             require('./products'));               // 3.13
-router.use('/delivery-order',       require('./delivery-order'));         // 3.14
-router.use('/free-order-delivery',  require('./free-order-delivery'));    // EXT — Blanket Agreement reward DO (no linked SO)
+// One endpoint, two shapes: `/sap/delivery-order/` handles both a
+// SO-linked DO (paid) and a standalone free-order DO (Blanket Agreement
+// reward). The handler branches on payload — see `detectMode` in the
+// module. SAP only ever hits this one route.
+router.use('/delivery-order',       require('./delivery-order'));         // 3.14 + EXT (free order)
 router.use('/invoice-order',        require('./invoice-order'));          // invoice → SO status=INVOICED
 router.use('/balance-status-update', require('./balance-status-update')); // 3.15
 router.use('/order-status-sync',    require('./order-status-sync'));      // 3.16

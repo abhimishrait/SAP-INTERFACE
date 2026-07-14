@@ -243,8 +243,9 @@ function TabDbWrites({ tx }: { tx: Transaction }) {
   const mod = MODULE_BY_ID[tx.moduleId];
   const moduleTable = ({
     'bp-master': 'bp_master',
-    'delivery-order': 'delivery_order',
-    'free-order-delivery': 'free_order_receipts + stock_transactions + stock_levels',
+    // Two shapes on one endpoint — the handler branches into either
+    // table set based on payload. See sap/delivery-order.js::detectMode.
+    'delivery-order': 'delivery_orders / free_order_receipts (+ stock_transactions + stock_levels)',
     'products': 'products',
     'blanket-agreement': 'blanket_agreement',
     'price-list': 'price_list',
