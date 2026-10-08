@@ -41,6 +41,47 @@ const cfg = require('../config');
 
 const router = express.Router();
 
+// SAP receivables, Phase 0 (2026-10-08): keep each invoice as its own
+// row in sap_invoices (Django model orders.SapInvoice) — the due dates
+// DMS reads Overdue and its ageing buckets from. Keyed on the invoice
+// DocEntry (else "<card_code>:<doc_number>"), so a re-push updates the
+// row. Runs after the invoice is recorded and never fails the push.
+async function recordSapInvoice(body, out) {
+  const docEntry = parseInt(body.doc_entry, 10) || null;
+  const docNumber = body.doc_number ? String(body.doc_number).trim() : '';
+  const cardCode = String(body.card_code).trim();
+  const key = docEntry ? String(docEntry) : (docNumber ? `${cardCode}:${docNumber}` : null);
+  if (!key) return;
+  let total = 0;
+  for (const d of body.invoice_details) {
+    const withTax = toDecimal(d.line_total_with_tax);
+    const amount = withTax !== null ? withTax : toDecimal(d.line_total);
+    if (amount !== null) total += amount;
+  }
+  await pool.query(
+    `INSERT INTO sap_invoices
+       (uuid, created_at, updated_at, is_active, invoice_key, doc_entry, doc_number,
+        card_code, party_id, sales_order_id, doc_date, due_date, total_amount,
+        source, payload, created_by_id, updated_by_id)
+     VALUES (REPLACE(UUID(),'-',''), NOW(6), NOW(6), 1, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             'invoice_push', ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       updated_at = NOW(6), is_active = 1, doc_entry = VALUES(doc_entry),
+       doc_number = VALUES(doc_number), card_code = VALUES(card_code),
+       party_id = VALUES(party_id), sales_order_id = VALUES(sales_order_id),
+       doc_date = VALUES(doc_date), due_date = VALUES(due_date),
+       total_amount = VALUES(total_amount), payload = VALUES(payload),
+       updated_by_id = VALUES(updated_by_id)`,
+    [
+      key, docEntry, docNumber, cardCode, out.party_id || null, out.id,
+      parseDate(body.doc_date) || null,
+      body.doc_due_date ? (parseDate(body.doc_due_date) || null) : null,
+      Math.round(total * 100) / 100, JSON.stringify(body),
+      cfg.systemUserId, cfg.systemUserId,
+    ]
+  );
+}
+
 function validate(body) {
   const errors = {};
   for (const f of ['card_code', 'doc_date', 'doc_number_so', 'invoice_details']) {
@@ -201,6 +242,12 @@ router.post('/', async (req, res, next) => {
         sap_invoice_number: invoiceDocNum,
       };
     });
+
+    try {
+      await recordSapInvoice(req.body, out);
+    } catch (e) {
+      console.error('[invoice-order] sap_invoices not saved:', e.message);
+    }
 
     res.status(200).json({
       ...out,
