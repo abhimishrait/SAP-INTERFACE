@@ -44,14 +44,24 @@ const router = express.Router();
 // SAP receivables, Phase 0 (2026-10-08): keep each invoice as its own
 // row in sap_invoices (Django model orders.SapInvoice) — the due dates
 // DMS reads Overdue and its ageing buckets from. Keyed on the invoice
-// DocEntry (else "<card_code>:<doc_number>"), so a re-push updates the
-// row. Runs after the invoice is recorded and never fails the push.
+// DocEntry, else "<card_code>:<doc_number>", else "so:<doc_entry_so>":
+// SAP's push carries the sales order reference but not always the
+// invoice's own number (2026-10-12 — invoices 19 / 20 were matched to
+// their order but never kept). Same keys as apps/orders/sap_invoices.py,
+// so a re-push updates the row. Runs after the invoice is recorded and
+// never fails the push.
 async function recordSapInvoice(body, out) {
   const docEntry = parseInt(body.doc_entry, 10) || null;
-  const docNumber = body.doc_number ? String(body.doc_number).trim() : '';
+  let docNumber = body.doc_number ? String(body.doc_number).trim() : '';
   const cardCode = String(body.card_code).trim();
-  const key = docEntry ? String(docEntry) : (docNumber ? `${cardCode}:${docNumber}` : null);
+  const soEntry = parseInt(body.doc_entry_so, 10) || null;
+  const key = docEntry ? String(docEntry)
+    : (docNumber ? `${cardCode}:${docNumber}` : (soEntry ? `so:${soEntry}` : null));
   if (!key) return;
+  // Without its own number the invoice is labelled by its sales order.
+  if (!docEntry && !docNumber && body.doc_number_so) {
+    docNumber = `SO-${String(body.doc_number_so).trim()}`;
+  }
   let total = 0;
   for (const d of body.invoice_details) {
     const withTax = toDecimal(d.line_total_with_tax);
@@ -174,8 +184,10 @@ router.post('/', async (req, res, next) => {
       }
 
       const orderId = so.id;
+      // The pair is the SALES ORDER's DocEntry / DocNum (it read "SAP INV",
+      // which made it look like the invoice's own number).
       const invoiceRemark =
-        `SAP INV ${req.body.doc_entry_so || ''}/${docNumberSo}; ` +
+        `SAP INV for SO ${req.body.doc_entry_so || ''}/${docNumberSo}; ` +
         `doc_date ${req.body.doc_date}; ` +
         `due ${req.body.doc_due_date || '-'}`;
 
